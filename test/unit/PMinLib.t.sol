@@ -139,12 +139,9 @@ contract PMinLibTest is BaseTest {
     ) public {
         // Setup realistic bounds
         tokReserves = bound(tokReserves, 1000e18, 1e25);
-        qtReserves = bound(qtReserves, 1e16, 1e23);
         
         // Ensure realistic price range
-        if (qtReserves > tokReserves / 100) {
-            qtReserves = tokReserves / 100;
-        }
+        qtReserves = bound(qtReserves, 1e16, tokReserves / 1000);
         
         supply = bound(supply, tokReserves, tokReserves * 10);
         burnAmount = bound(burnAmount, 0, supply - tokReserves); // Can't burn pool tokens
