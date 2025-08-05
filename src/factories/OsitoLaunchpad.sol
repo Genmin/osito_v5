@@ -39,19 +39,22 @@ contract OsitoLaunchpad {
     ) external returns (address token, address pair, address feeRouter) {
         require(startFeeBps >= endFeeBps, "INVALID_FEE_RANGE");
         
-        // Create FeeRouter first
-        feeRouter = address(new FeeRouter(treasury));
-        
-        // Create pair (will receive all tokens)
+        // Create pair first (will receive all tokens)
         pair = address(new OsitoPair(
             address(0), // token0 placeholder
             weth,       // token1 is always WETH
-            feeRouter,
+            address(0), // feeRouter placeholder (will be set after)
             startFeeBps,
             endFeeBps,
             feeDecayTarget,
             true        // tokIsToken0 = true
         ));
+        
+        // Create FeeRouter with pair address
+        feeRouter = address(new FeeRouter(treasury, pair));
+        
+        // Set feeRouter in pair (needs separate setter since circular dependency)
+        OsitoPair(pair).setFeeRouter(feeRouter);
         
         // Create token and mint entire supply to pair
         token = address(new OsitoToken(name, symbol, supply, pair));
@@ -59,14 +62,11 @@ contract OsitoLaunchpad {
         // Set token0 in pair and update initialSupply
         OsitoPair(pair).initialize(token);
         
-        // SUBTRACTION: Remove ETH confusion, use PURE ERC20 WETH
+        // Transfer WETH to pair
         ERC20(weth).transferFrom(msg.sender, pair, wethAmount);
         
-        // Mint LP tokens to FeeRouter
-        OsitoPair(pair).mint(feeRouter);
-        
-        // Set principal LP floor to prevent liquidity drain
-        FeeRouter(feeRouter).setPrincipalLp(pair);
+        // CRITICAL: Mint LP tokens to address(0) - ETERNAL LIQUIDITY LOCK
+        OsitoPair(pair).mint(address(0));
         
         emit TokenLaunched(token, pair, feeRouter, name, symbol, supply);
     }

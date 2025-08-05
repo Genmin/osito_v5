@@ -1,102 +1,55 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {ERC20} from "solady/tokens/ERC20.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
-
 import {OsitoPair} from "./OsitoPair.sol";
 import {OsitoToken} from "./OsitoToken.sol";
 
-/// @notice Collects fees and burns tokens to increase pMin
-/// @dev NO Ownable - fully permissionless, ONE per pair
-contract FeeRouter is ReentrancyGuard {
+/// @notice Stateless fee collector - burns TOK and routes QT to treasury
+/// @dev ZERO state, ZERO principal - receives only fees from _mintFee
+contract FeeRouter {
     using SafeTransferLib for address;
-    using FixedPointMathLib for uint256;
     
     address public immutable treasury;
     address public immutable factory;
-    address public pair;
-    uint256 public principalLp;  // Track principal LP separately from fees
+    address public immutable pair;
     
     event FeesCollected(uint256 tokBurned, uint256 qtCollected);
-    event Initialized(address pair, uint256 reserve0, uint256 reserve1);
     
-    constructor(address _treasury) {
+    constructor(address _treasury, address _pair) {
         treasury = _treasury;
         factory = msg.sender;
-    }
-
-    /// @notice Initialize with pair address and principal LP amount
-    function setPrincipalLp(address _pair) external {
-        require(msg.sender == factory, "ONLY_FACTORY");
-        require(pair == address(0), "ALREADY_SET");
         pair = _pair;
-        
-        // Store the initial LP balance as principal - this should never be burned
-        principalLp = OsitoPair(_pair).balanceOf(address(this));
-        
-        emit Initialized(_pair, principalLp, 0);
     }
     
-    /// @notice Collect fees using UniV2's _mintFee mechanism
-    /// @dev Battle-tested logic that avoids deadlock
-    function collectFees() external nonReentrant {
+    /// @notice Collect fees and immediately burn/distribute
+    /// @dev Completely stateless - FeeRouter holds ZERO LP between calls
+    function collectFees() external {
         OsitoPair pair_ = OsitoPair(pair);
-
-        // ------------------------------------------------------------------- //
-        // 1. Has k grown since last mint/burn?  If not, exit early            //
-        // ------------------------------------------------------------------- //
-        (uint112 r0, uint112 r1,) = pair_.getReserves();
-        uint256 currentK  = uint256(r0) * uint256(r1);
-        uint256 storedK   = pair_.kLast();          // 0 straight after launch
-
-        if (storedK == 0 || currentK <= storedK) return;   // nothing to crystallise
-
-        // ------------------------------------------------------------------- //
-        // 2. Calculate provably minimal sacrifice accounting for _mintFee()   //
-        //    _mintFee() can increase totalSupply by up to 20% (worst case)    //
-        // ------------------------------------------------------------------- //
-        uint256 S = pair_.totalSupply();  // pre-mint supply
-        uint256 bal0 = ERC20(pair_.token0()).balanceOf(address(pair_));
-        uint256 bal1 = ERC20(pair_.token1()).balanceOf(address(pair_));
-        uint256 m = bal0 < bal1 ? bal0 : bal1;  // min balance
         
-        // Account for worst-case fee mint: S_after < 6S/5
-        // Therefore: L > (6S/5)/m = 6S/5m
-        // Using Solady's mulDivUp for ceiling division
-        uint256 sacrificeAmount = S.mulDivUp(6, 5)  // 6S/5 (rounded up)
-                                   .divUp(m)         // divide by m (rounded up)
-                                   + 1;              // ensure strict inequality
+        // Trigger fee mint - FeeRouter receives 90% of k growth as LP
+        pair_.collectFees();
         
-        require(pair_.balanceOf(address(this)) >= sacrificeAmount, "ROUTER_HAS_NO_LP");
-        pair_.transfer(pair, sacrificeAmount);
-        pair_.burn(address(this));                  // revert bubbles if impossible
-
-        // ------------------------------------------------------------------- //
-        // 3. Whatever is now above principalLp is pure fee‑LP – burn it       //
-        // ------------------------------------------------------------------- //
-        uint256 lpBal = pair_.balanceOf(address(this));
-        if (lpBal <= principalLp) return;           // unlikely, but safe‑guard
-        uint256 feeLp = lpBal - principalLp;
-
-        pair_.transfer(pair, feeLp);                // send only fee‑LP
+        // Get ALL LP we hold (should only be fees, never principal)
+        uint256 feeLp = pair_.balanceOf(address(this));
+        if (feeLp == 0) return;  // No fees to collect
+        
+        // Burn ALL LP to get underlying tokens
+        pair_.transfer(pair, feeLp);
         (uint256 amt0, uint256 amt1) = pair_.burn(address(this));
-
-        // ------------------------------------------------------------------- //
-        // 4. Destroy TOK, route QT to treasury                                //
-        // ------------------------------------------------------------------- //
-        bool tokIs0     = pair_.tokIsToken0();
+        
+        // Identify TOK and QT
+        bool tokIs0 = pair_.tokIsToken0();
         address tokAddr = tokIs0 ? pair_.token0() : pair_.token1();
-        address qtAddr  = tokIs0 ? pair_.token1() : pair_.token0();
-
-        uint256 tokAmt  = tokIs0 ? amt0 : amt1;
-        uint256 qtAmt   = tokIs0 ? amt1 : amt0;
-
+        address qtAddr = tokIs0 ? pair_.token1() : pair_.token0();
+        
+        uint256 tokAmt = tokIs0 ? amt0 : amt1;
+        uint256 qtAmt = tokIs0 ? amt1 : amt0;
+        
+        // Burn TOK, send QT to treasury
         if (tokAmt > 0) OsitoToken(tokAddr).burn(tokAmt);
-        if (qtAmt  > 0) qtAddr.safeTransfer(treasury, qtAmt);
-
+        if (qtAmt > 0) qtAddr.safeTransfer(treasury, qtAmt);
+        
         emit FeesCollected(tokAmt, qtAmt);
     }
 }

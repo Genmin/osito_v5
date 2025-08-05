@@ -51,7 +51,7 @@ contract OsitoPair is ERC20, ReentrancyGuard {
     address public immutable factory;
     address public token0;
     address public immutable token1;
-    address public immutable feeRouter;
+    address public feeRouter;  // Not immutable, set after creation
     bool public immutable tokIsToken0;
     
     // Fee decay parameters
@@ -97,6 +97,13 @@ contract OsitoPair is ERC20, ReentrancyGuard {
         address tokToken = tokIsToken0 ? _token0 : token1;
         initialSupply = ERC20(tokToken).totalSupply();
     }
+    
+    /// @notice Set feeRouter after pair creation (for circular dependency)
+    function setFeeRouter(address _feeRouter) external {
+        require(msg.sender == factory, "UNAUTHORIZED");
+        require(feeRouter == address(0), "ALREADY_SET");
+        feeRouter = _feeRouter;
+    }
 
     // EXACT UniV2 implementation with Solady optimizations
     function getReserves() external view returns (uint112 r0, uint112 r1, uint32 blockTimestampLast) {
@@ -113,7 +120,7 @@ contract OsitoPair is ERC20, ReentrancyGuard {
         emit Sync(reserves.r0, reserves.r1);
     }
 
-    // EXACT UniV2 fee collection mechanism
+    // 100% of k growth goes to FeeRouter - NO SPLITS, NO DIVERSIONS
     function _mintFee(uint112 r0, uint112 r1) private returns (bool feeOn) {
         address _feeRouter = feeRouter;
         feeOn = _feeRouter != address(0);
@@ -128,9 +135,9 @@ contract OsitoPair is ERC20, ReentrancyGuard {
                     uint256 _totalSupply = totalSupply();
                     
                     if (rootK > rootKLast) {
-                        uint256 numerator = _totalSupply * (rootK - rootKLast);
-                        uint256 denominator = (rootK * 5) + rootKLast;
-                        uint256 liquidity = numerator / denominator;
+                        // 90% of k growth to FeeRouter, 10% stays in pool
+                        // FeeRouter always burns 100% of what it receives
+                        uint256 liquidity = _totalSupply * (rootK - rootKLast) * 90 / (rootKLast * 100);
                         
                         if (liquidity > 0) {
                             _mint(_feeRouter, liquidity);
@@ -144,7 +151,8 @@ contract OsitoPair is ERC20, ReentrancyGuard {
     }
 
     function mint(address to) external nonReentrant returns (uint256 liquidity) {
-        require(to == feeRouter, "RESTRICTED"); // ONLY addition to UniV2
+        // Allow address(0) for initial burn, or feeRouter for fee collection
+        require(to == address(0) || to == feeRouter, "RESTRICTED");
         
         Reserves memory R = reserves;
         uint256 bal0 = ERC20(token0).balanceOf(address(this));
@@ -258,6 +266,17 @@ contract OsitoPair is ERC20, ReentrancyGuard {
         
         return PMinLib.calculate(rTok, rQt, supply, currentFeeBps());
     }
+    
+    // Minimal addition: trigger fee collection without burn complexity
+    function collectFees() external {
+        require(msg.sender == feeRouter, "ONLY_FEE_ROUTER");
+        Reserves memory R = reserves;
+        _mintFee(R.r0, R.r1);
+        if (kLast != 0) {
+            kLast = uint256(R.r0) * uint256(R.r1);
+        }
+    }
+    
     // CRITICAL: sync() and skim() are INTENTIONALLY OMITTED to prevent donation attacks
     // The protocol maintains its "closed-liquidity" property by disabling these functions
     
