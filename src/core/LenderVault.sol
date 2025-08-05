@@ -98,7 +98,7 @@ contract LenderVault is ERC4626 {
         uint256 currentTime = block.timestamp;
         if (currentTime == lastAccrueTime) return;
         
-        uint256 rate = this.borrowRate();
+        uint256 rate = _borrowRate();
         uint256 timeDelta = currentTime - lastAccrueTime;
         // CRITICAL FIX: Divide by seconds in a year
         uint256 interestAccumulated = rate.mulDiv(timeDelta, 365 days);
@@ -106,6 +106,20 @@ contract LenderVault is ERC4626 {
         totalBorrows += totalBorrows.mulDiv(interestAccumulated, 1e18);
         borrowIndex += borrowIndex.mulDiv(interestAccumulated, 1e18);
         lastAccrueTime = currentTime;
+    }
+    
+    function _borrowRate() private view returns (uint256) {
+        if (totalBorrows == 0) return BASE_RATE;
+        
+        uint256 total = totalAssets();
+        uint256 utilization = totalBorrows.mulDiv(1e18, total);
+        
+        if (utilization <= KINK) {
+            return BASE_RATE + utilization.mulDiv(RATE_SLOPE, 1e18);
+        } else {
+            uint256 excessUtil = utilization - KINK;
+            return BASE_RATE + RATE_SLOPE + excessUtil.mulDiv(RATE_SLOPE * 3, 1e18);
+        }
     }
     
     function _tokenName(address assetAddr) private view returns (string memory) {

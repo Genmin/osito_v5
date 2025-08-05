@@ -25,8 +25,9 @@ contract OsitoPairTest is BaseTest {
         // Deploy WETH
         weth = new MockWETH();
         
-        // Deploy FeeRouter
-        feeRouter = new FeeRouter();
+        // Deploy FeeRouter with treasury
+        address treasury = makeAddr("treasury");
+        feeRouter = new FeeRouter(treasury);
         
         // Deploy pair with placeholder token0
         pair = new OsitoPair(

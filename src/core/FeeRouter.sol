@@ -15,12 +15,24 @@ contract FeeRouter is ReentrancyGuard {
     using SafeTransferLib for address;
     using FixedPointMathLib for uint256;
     
+    address public immutable treasury;
+    address public immutable factory;
     mapping(address => uint256) public principalLp; // Track seed liquidity per pair
+    
+    event FeesCollected(address indexed pair, uint256 tokBurned, uint256 qtCollected);
+    event PrincipalLpSet(address indexed pair, uint256 amount);
+    
+    constructor(address _treasury) {
+        treasury = _treasury;
+        factory = msg.sender;
+    }
 
     /// @notice Set principal LP (called once after initial mint)
     function setPrincipalLp(address pair) external {
+        require(msg.sender == factory, "ONLY_FACTORY");
         require(principalLp[pair] == 0, "ALREADY_SET");
         principalLp[pair] = OsitoPair(pair).balanceOf(address(this));
+        emit PrincipalLpSet(pair, principalLp[pair]);
     }
     
     /// @notice Collect fees with reentrancy protection and LP floor
@@ -48,12 +60,12 @@ contract FeeRouter is ReentrancyGuard {
             OsitoToken(tokToken).burn(tokAmount);
         }
         
-        // QT (WETH) doesn't have burn - send to treasury/dead address
+        // QT (WETH) doesn't have burn - send to treasury
         // SUBTRACTION: Don't return QT to pair - this would shrink k
         if (qtAmount > 0) {
-            // WETH cannot be burned, send to dead address for now
-            // In production, this should go to treasury
-            qtToken.safeTransfer(0x000000000000000000000000000000000000dEaD, qtAmount);
+            qtToken.safeTransfer(treasury, qtAmount);
         }
+        
+        emit FeesCollected(pair, tokAmount, qtAmount);
     }
 }

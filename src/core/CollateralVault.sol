@@ -33,6 +33,8 @@ contract CollateralVault is ReentrancyGuard {
     uint256 public constant LIQUIDATION_INCENTIVE = 10500; // 5% bonus
     uint256 public constant CLOSE_FACTOR = 5000; // 50% max liquidation
     
+    event Liquidate(address indexed liquidator, address indexed borrower, uint256 repayAmount, uint256 collateralSeized);
+    
     constructor(address _collateralToken, address _pair, address _lenderVault) {
         collateralToken = _collateralToken;
         pair = _pair;
@@ -68,12 +70,12 @@ contract CollateralVault is ReentrancyGuard {
             ? snapshot.principal 
             : snapshot.principal.mulDiv(lenderIndex, snapshot.interestIndex);
         
+        require(_canBorrow(msg.sender, amount), "INSUFFICIENT_COLLATERAL");
+        
         accountBorrows[msg.sender] = BorrowSnapshot({
             principal: currentDebt + amount,
             interestIndex: lenderIndex
         });
-        
-        require(_isAccountHealthy(msg.sender), "INSUFFICIENT_COLLATERAL");
         
         LenderVault(lenderVault).borrow(amount);
         ERC20(LenderVault(lenderVault).asset()).transfer(msg.sender, amount);
@@ -120,10 +122,10 @@ contract CollateralVault is ReentrancyGuard {
         uint256 maxRepay = currentDebt.mulDiv(CLOSE_FACTOR, 10000);
         repayAmount = repayAmount > maxRepay ? maxRepay : repayAmount;
         
-        // P0 FIX: Use min(spot, pMin) for liquidation oracle
+        // P0 FIX: Use max(spot, pMin) for liquidation oracle
         uint256 pMin = OsitoPair(pair).pMin();
         uint256 spotPrice = _getSpotPrice();
-        uint256 liquidationPrice = pMin < spotPrice ? pMin : spotPrice;
+        uint256 liquidationPrice = pMin > spotPrice ? pMin : spotPrice;
         
         uint256 collateralSeized = repayAmount.mulDiv(LIQUIDATION_INCENTIVE, 10000).mulDiv(1e18, liquidationPrice);
         
@@ -140,6 +142,8 @@ contract CollateralVault is ReentrancyGuard {
         
         LenderVault(lenderVault).repay(repayAmount);
         collateralToken.safeTransfer(msg.sender, collateralSeized);
+        
+        emit Liquidate(msg.sender, borrower, repayAmount, collateralSeized);
     }
     
     function _getSpotPrice() private view returns (uint256) {
@@ -163,12 +167,33 @@ contract CollateralVault is ReentrancyGuard {
             ? snapshot.principal 
             : snapshot.principal.mulDiv(lenderIndex, snapshot.interestIndex);
         
-        // Use pMin for conservative pricing (always safe)
+        // Use max(pMin, spot) to match liquidation oracle
         uint256 pMin = OsitoPair(pair).pMin();
-        uint256 collateralValue = collateralBalances[account].mulDiv(pMin, 1e18);
+        uint256 spotPrice = _getSpotPrice();
+        uint256 price = pMin > spotPrice ? pMin : spotPrice;
+        uint256 collateralValue = collateralBalances[account].mulDiv(price, 1e18);
         uint256 borrowPower = collateralValue.mulDiv(COLLATERAL_FACTOR, 10000);
         
         return currentDebt <= borrowPower;
+    }
+    
+    function _canBorrow(address account, uint256 additionalDebt) private view returns (bool) {
+        BorrowSnapshot memory snapshot = accountBorrows[account];
+        uint256 lenderIndex = LenderVault(lenderVault).borrowIndex();
+        
+        // EXACT Compound pattern: handle first borrow case
+        uint256 currentDebt = snapshot.interestIndex == 0 
+            ? snapshot.principal 
+            : snapshot.principal.mulDiv(lenderIndex, snapshot.interestIndex);
+        
+        // Use min(pMin, spot) for conservative borrowing valuation
+        uint256 pMin = OsitoPair(pair).pMin();
+        uint256 spotPrice = _getSpotPrice();
+        uint256 price = pMin < spotPrice ? pMin : spotPrice;
+        uint256 collateralValue = collateralBalances[account].mulDiv(price, 1e18);
+        uint256 borrowPower = collateralValue.mulDiv(COLLATERAL_FACTOR, 10000);
+        
+        return (currentDebt + additionalDebt) <= borrowPower;
     }
     
     function getAccountHealth(address account) external view returns (uint256 collateral, uint256 debt, bool healthy) {

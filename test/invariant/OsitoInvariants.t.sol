@@ -124,7 +124,8 @@ contract OsitoInvariantsTest is BaseTest {
         
         // Deploy infrastructure
         weth = new MockWETH();
-        launchpad = new OsitoLaunchpad(address(weth));
+        address treasury = makeAddr("treasury");
+        launchpad = new OsitoLaunchpad(address(weth), treasury);
         lendingFactory = new LendingFactory();
         
         // Launch token

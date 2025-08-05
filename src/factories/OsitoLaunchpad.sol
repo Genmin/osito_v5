@@ -10,6 +10,7 @@ import {FeeRouter} from "../core/FeeRouter.sol";
 /// @dev NO Ownable - anyone can launch
 contract OsitoLaunchpad {
     address public immutable weth;
+    address public immutable treasury;
     
     event TokenLaunched(
         address indexed token,
@@ -20,8 +21,9 @@ contract OsitoLaunchpad {
         uint256 supply
     );
     
-    constructor(address _weth) {
+    constructor(address _weth, address _treasury) {
         weth = _weth;
+        treasury = _treasury;
     }
     
     /// @notice Create token + pair in single tx - PURE ERC20 WETH PATH
@@ -38,7 +40,7 @@ contract OsitoLaunchpad {
         require(startFeeBps >= endFeeBps, "INVALID_FEE_RANGE");
         
         // Create FeeRouter first
-        feeRouter = address(new FeeRouter());
+        feeRouter = address(new FeeRouter(treasury));
         
         // Create pair (will receive all tokens)
         pair = address(new OsitoPair(

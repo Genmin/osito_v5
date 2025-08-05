@@ -2,7 +2,7 @@
 
 ## What Osito Actually Is
 
-Osito is **NOT a margin lending protocol**. It is an **options protocol disguised as lending** that eliminates liquidation risk entirely through its pMin mechanism. Borrowing is actually writing a PUT option with strike = pMin.
+Osito is **NOT a margin lending protocol**. It is a **mathematically guaranteed safe lending system** that eliminates liquidation risk entirely through its pMin mechanism.
 
 ### The Key Insight
 
@@ -100,36 +100,25 @@ Breaking it down:
 
 This calculates the minimum price if ALL external TOK was dumped into the pool at once.
 
-## Borrowing as Options (Not Margin Lending!)
+## Borrowing and Liquidation Logic
 
-### What Borrowing Actually Is
-- **Borrowing = Writing a PUT option** with strike price = pMin
-- Deposit TOK collateral, receive QT equal to `collateral × pMin`
-- Interest accrues as a fee to maintain the option position
-- NO collateralization ratios, NO liquidation risk, NO margin calls
+### Borrowing Rules
+- **Borrow Limit**: `debt ≤ pMin × collateral`
+- This is a HARD limit - you cannot borrow more than the guaranteed floor value
+- As pMin rises, existing borrowers gain more borrowing power automatically
 
-### Position States
-- **In-the-Money (ITM)**: `collateral × spot > debt (including interest)`
-  - Borrower will repay to reclaim collateral (exercise the option)
-- **Out-of-the-Money (OTM)**: `collateral × spot < debt (including interest)`
-  - Borrower may walk away (let option expire)
-  - Note: The ONLY way to go OTM is interest accumulation, since debt starts at pMin value
+### Health Monitoring
+- **Healthy**: `debt ≤ spotPrice × collateral`
+- **Out-of-the-Money (OTM)**: `debt > spotPrice × collateral`
+- OTM positions get a 72-hour grace period before liquidation
 
-### Recovery Process (Not Liquidation!)
-1. Position becomes OTM (debt with interest > spot value of collateral)
-2. 72-hour grace period begins (convenience for borrowers, not for solvency)
-3. After grace period, anyone can trigger recovery
-4. Protocol atomically swaps ALL collateral for QT in the AMM
-5. Repays original debt to lenders (guaranteed by pMin mechanism)
-6. Caller receives small bounty
-7. Any excess QT is profit for lenders (the interest)
-
-### Why This is Always Safe
-- Debt issued at pMin, which is the mathematical floor
-- Even if spot crashes to pMin, swap recovers 100% of principal
-- Interest is pure profit when collected
-- No external liquidators needed - the AMM is the liquidator
-- No solvency risk - protocol remains safe even if recovery is never called
+### Liquidation Process
+1. Position marked OTM when underwater at spot price
+2. 72-hour grace period begins
+3. After grace period, anyone can liquidate
+4. Liquidator swaps collateral for QT at spot price
+5. Repays debt, keeps profit
+6. **Always profitable because spot ≥ pMin and debt was issued at pMin**
 
 ## Implementation Details
 
@@ -150,18 +139,14 @@ This calculates the minimum price if ALL external TOK was dumped into the pool a
 - Initial supply goes 100% to AMM
 
 ### CollateralVault
-- Holds TOK collateral for option positions
-- Uses Compound V2 BorrowSnapshot pattern for interest accrual
-- Debt = principal (at pMin) + accrued interest
-- Recovery via atomic AMM swap when OTM after grace period
+- Holds TOK collateral
+- Uses Compound V2 BorrowSnapshot pattern
 - Isolated per token
 
 ### LenderVault (ERC4626)
 - Singleton QT lending pool
-- Lenders deposit QT, earn yield from option premiums (interest)
-- Uses Compound's proven interest accrual model
+- Lenders deposit QT, earn yield
 - Provides liquidity to all CollateralVaults
-- Principal always recoverable via pMin guarantee
 
 ## Why This Works
 
@@ -179,17 +164,6 @@ This calculates the minimum price if ALL external TOK was dumped into the pool a
 
 ## Summary
 
-Osito is not a lending protocol - it's an **options protocol** where:
-- **Borrowing = Writing a PUT** with strike at pMin (the mathematical floor)
-- **Interest = Option premium** paid to maintain the position
-- **Recovery = Automatic exercise** when positions go OTM
+Osito is not a lending protocol that manages risk. It's a lending protocol that **eliminates risk** through mathematical guarantees. The pMin ratchet ensures that every loan is always 100% backed by recoverable value, while continuously improving capital efficiency as the protocol matures.
 
-The pMin ratchet ensures that every position is always 100% backed by recoverable value. As pMin rises, writers can issue more PUTs against the same collateral.
-
-The genius is in its simplicity: 
-1. Issue options at the mathematical floor (always safe)
-2. Collect premiums as interest (pure profit)
-3. Auto-exercise OTM positions via AMM (guaranteed recovery)
-4. Watch pMin rise forever from burns and fees
-
-No liquidations. No margin calls. No external capital. Just math and inevitability.
+The genius is in its simplicity: burn tokens to reduce supply, compound fees to increase reserves, and watch as the mathematical floor price (pMin) rises forever, unlocking more borrowing power while maintaining perfect safety.
