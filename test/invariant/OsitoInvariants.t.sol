@@ -189,18 +189,17 @@ contract OsitoInvariantsTest is StdInvariant, TestBase {
         
         (token, pair, feeRouter, vault, lenderVault) = createAndLaunchToken("Test Token", "TEST", INITIAL_SUPPLY);
         
+        // Do initial swaps to distribute tokens
         vm.prank(alice);
-        addLiquidity(pair, INITIAL_LIQUIDITY);
-        
-        vm.prank(alice);
-        swap(pair, address(wbera), 10 ether, alice);
+        swap(pair, address(wbera), 0.5 ether, alice);
         
         vm.prank(bob);
-        swap(pair, address(wbera), 5 ether, bob);
+        swap(pair, address(wbera), 0.3 ether, bob);
         
         vm.prank(charlie);
-        swap(pair, address(wbera), 3 ether, charlie);
+        swap(pair, address(wbera), 0.2 ether, charlie);
         
+        // Fund the lender vault
         vm.prank(bob);
         wbera.approve(address(lenderVault), type(uint256).max);
         vm.prank(bob);

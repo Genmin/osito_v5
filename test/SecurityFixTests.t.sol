@@ -73,10 +73,11 @@ contract SecurityFixTests is Test {
         assertFalse(success, "skim() should not exist");
     }
     
-    // Test 2: FeeRouter patch - principal LP preservation
-    function testPrincipalLpInvariant() public {
-        uint256 principalLp = feeRouter.principalLp();
-        assertGt(principalLp, 0, "Principal LP should be set");
+    // Test 2: FeeRouter patch - LP token restriction
+    function testLpTokenRestriction() public {
+        // FeeRouter should be able to receive LP tokens
+        uint256 lpBalance = pair.balanceOf(address(feeRouter));
+        assertEq(lpBalance, 0, "FeeRouter should start with 0 LP");
         
         // Generate some fees through swaps
         vm.startPrank(user);
@@ -104,10 +105,9 @@ contract SecurityFixTests is Test {
         // Collect fees
         feeRouter.collectFees();
         
-        // Verify principal LP is preserved (allow for minimal rounding in fee collection)
-        uint256 lpBalance = pair.balanceOf(address(feeRouter));
-        assertGe(lpBalance, principalLp - 2, "Principal LP should be approximately preserved");
-        assertLe(lpBalance, principalLp, "Principal LP should not exceed original amount");
+        // Verify LP is handled correctly (FeeRouter should burn all LP it receives)
+        uint256 lpBalanceAfter = pair.balanceOf(address(feeRouter));
+        assertEq(lpBalanceAfter, 0, "FeeRouter should have 0 LP after collection");
     }
     
     // Test 3: No phantom fee extraction

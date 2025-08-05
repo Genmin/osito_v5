@@ -29,6 +29,7 @@ contract OsitoPair is ERC20, ReentrancyGuard {
         address indexed to
     );
     event Sync(uint112 reserve0, uint112 reserve1);
+    event FeeRouterSet(address indexed oldRouter, address indexed newRouter);
     
     function name() public pure override returns (string memory) {
         return "Osito LP";
@@ -102,7 +103,9 @@ contract OsitoPair is ERC20, ReentrancyGuard {
     function setFeeRouter(address _feeRouter) external {
         require(msg.sender == factory, "UNAUTHORIZED");
         require(feeRouter == address(0), "ALREADY_SET");
+        address oldRouter = feeRouter;
         feeRouter = _feeRouter;
+        emit FeeRouterSet(oldRouter, _feeRouter);
     }
 
     // EXACT UniV2 implementation with Solady optimizations
@@ -268,7 +271,7 @@ contract OsitoPair is ERC20, ReentrancyGuard {
     }
     
     // Minimal addition: trigger fee collection without burn complexity
-    function collectFees() external {
+    function collectFees() external nonReentrant {
         require(msg.sender == feeRouter, "ONLY_FEE_ROUTER");
         Reserves memory R = reserves;
         _mintFee(R.r0, R.r1);

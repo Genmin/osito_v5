@@ -95,7 +95,6 @@ contract CollateralVault is ReentrancyGuard {
         delete otmPositions[msg.sender];
         
         LenderVault(lenderVault).borrow(amount);
-        ERC20(LenderVault(lenderVault).asset()).transfer(msg.sender, amount);
         
         emit PositionOpened(msg.sender, collateralBalances[msg.sender], currentDebt + amount);
     }
@@ -126,6 +125,7 @@ contract CollateralVault is ReentrancyGuard {
             });
         }
         
+        ERC20(LenderVault(lenderVault).asset()).approve(lenderVault, repayAmount);
         LenderVault(lenderVault).repay(repayAmount);
         
         emit PositionClosed(msg.sender, repayAmount);

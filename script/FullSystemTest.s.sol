@@ -146,17 +146,19 @@ contract FullSystemTest is Script {
             console.log("  Borrowed:", borrowAmount);
             
             // Check position
-            (uint256 collateral, uint256 debt) = CollateralVault(vault).positions(deployer);
-            console.log("  Position - Collateral:", collateral, "Debt:", debt);
+            uint256 collateral = CollateralVault(vault).collateralBalances(deployer);
+            (uint256 principal,) = CollateralVault(vault).accountBorrows(deployer);
+            console.log("  Position - Collateral:", collateral, "Debt:", principal);
             
             // 7. TEST REPAYMENT
             console.log("\n7. TESTING REPAYMENT...");
-            IWBERA(WBERA).approve(vault, debt);
-            CollateralVault(vault).repay(debt / 2);
+            IWBERA(WBERA).approve(vault, principal);
+            CollateralVault(vault).repay(principal / 2);
             console.log("  Repaid half debt");
             
-            (collateral, debt) = CollateralVault(vault).positions(deployer);
-            console.log("  Position after - Collateral:", collateral, "Debt:", debt);
+            collateral = CollateralVault(vault).collateralBalances(deployer);
+            (principal,) = CollateralVault(vault).accountBorrows(deployer);
+            console.log("  Position after - Collateral:", collateral, "Debt:", principal);
         }
         
         // 8. TEST FEE DECAY

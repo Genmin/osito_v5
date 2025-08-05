@@ -32,7 +32,7 @@ contract MockWBERA is ERC20 {
         _mint(to, amount);
     }
     
-    function deposit() external payable {
+    function deposit() public payable {
         _mint(msg.sender, msg.value);
     }
     
@@ -125,27 +125,31 @@ abstract contract TestBase is Test {
     ) internal returns (OsitoToken token, OsitoPair pair, FeeRouter feeRouter, CollateralVault vault, LenderVault lenderVault) {
         vm.startPrank(alice);
         
+        // Approve WBERA for initial liquidity
+        wbera.approve(address(launchpad), 1 ether);
+        
+        // Launch token with initial liquidity
         (address tokenAddr, address pairAddr, address feeRouterAddr) = launchpad.launchToken(
             name,
             symbol,
             supply,
-            0,
-            true
+            1 ether,  // wethAmount for initial liquidity
+            9900,     // startFeeBps (99%)
+            30,       // endFeeBps (0.3%)
+            supply / 10  // feeDecayTarget (10% of supply)
         );
         
         token = OsitoToken(tokenAddr);
         pair = OsitoPair(pairAddr);
         feeRouter = FeeRouter(feeRouterAddr);
         
-        address lenderVaultAddr = lendingFactory.getLenderVault();
-        if (lenderVaultAddr == address(0)) {
-            lenderVaultAddr = lendingFactory.deployLenderVault();
-        }
-        lenderVault = LenderVault(lenderVaultAddr);
+        // Get lender vault (deployed in LendingFactory constructor)
+        lenderVault = LenderVault(lendingFactory.lenderVault());
         
-        address vaultAddr = lendingFactory.getVault(tokenAddr);
+        // Create lending market for this pair
+        address vaultAddr = lendingFactory.collateralVaults(pairAddr);
         if (vaultAddr == address(0)) {
-            vaultAddr = lendingFactory.deployVault(tokenAddr, pairAddr);
+            vaultAddr = lendingFactory.createLendingMarket(pairAddr);
         }
         vault = CollateralVault(vaultAddr);
         

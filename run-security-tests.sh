@@ -14,7 +14,15 @@ echo ""
 
 # Check if required tools are installed
 check_tool() {
-    if ! command -v $1 &> /dev/null; then
+    if [ "$1" = "slither" ]; then
+        if python3 -m slither --version &> /dev/null; then
+            echo -e "${GREEN}✓ $1 is installed (Python module)${NC}"
+            return 0
+        else
+            echo -e "${RED}✗ $1 is not installed${NC}"
+            return 1
+        fi
+    elif ! command -v $1 &> /dev/null; then
         echo -e "${RED}✗ $1 is not installed${NC}"
         return 1
     else
@@ -24,13 +32,19 @@ check_tool() {
 }
 
 echo -e "${YELLOW}Checking required tools...${NC}"
-TOOLS_OK=true
-check_tool "forge" || TOOLS_OK=false
-check_tool "slither" || TOOLS_OK=false
+FORGE_OK=false
+SLITHER_OK=false
 
-if [ "$TOOLS_OK" = false ]; then
-    echo -e "${RED}Please install missing tools before running tests${NC}"
+check_tool "forge" && FORGE_OK=true
+check_tool "slither" && SLITHER_OK=true
+
+if [ "$FORGE_OK" = false ]; then
+    echo -e "${RED}Forge is required to run tests. Please install it first.${NC}"
     exit 1
+fi
+
+if [ "$SLITHER_OK" = false ]; then
+    echo -e "${YELLOW}⚠ Slither not installed - static analysis will be skipped${NC}"
 fi
 
 echo ""
@@ -88,11 +102,12 @@ echo -e "${GREEN}     RUNNING STATIC ANALYSIS (SLITHER)         ${NC}"
 echo -e "${GREEN}================================================${NC}"
 echo ""
 
-if command -v slither &> /dev/null; then
+if [ "$SLITHER_OK" = true ]; then
     echo -e "${YELLOW}Running Slither analysis...${NC}"
-    slither . --config-file slither.config.json --checklist 2>/dev/null | head -50
+    python3 -m slither . --config-file slither.config.json --checklist 2>/dev/null | head -50
 else
-    echo -e "${YELLOW}Slither not installed, skipping static analysis${NC}"
+    echo -e "${YELLOW}⚠ Skipping static analysis (Slither not installed)${NC}"
+    echo -e "${YELLOW}  To install: pip3 install slither-analyzer${NC}"
 fi
 
 echo ""

@@ -28,12 +28,11 @@ contract CriticalFuzzTests is TestBase {
         
         (token, pair, feeRouter, vault, lenderVault) = createAndLaunchToken("Test Token", "TEST", INITIAL_SUPPLY);
         
+        // Do a swap to activate the pair
         vm.prank(alice);
-        addLiquidity(pair, INITIAL_LIQUIDITY);
+        swap(pair, address(wbera), 0.5 ether, alice);
         
-        vm.prank(alice);
-        swap(pair, address(wbera), 10 ether, alice);
-        
+        // Fund the lender vault
         vm.prank(bob);
         wbera.approve(address(lenderVault), type(uint256).max);
         vm.prank(bob);
@@ -240,7 +239,7 @@ contract CriticalFuzzTests is TestBase {
         
         assert(indexAfter > indexBefore);
         
-        (,,,uint256 debt,,) = vault.getAccountState(bob);
+        (,uint256 debt,,,) = vault.getAccountState(bob);
         assert(debt > borrowAmount);
     }
     

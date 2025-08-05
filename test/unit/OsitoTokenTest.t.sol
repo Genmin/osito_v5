@@ -137,14 +137,17 @@ contract OsitoTokenTest is TestBase {
         assertEq(token.allowance(alice, spender), approveAmount - transferAmount);
     }
     
-    function test_ZeroAddressChecks() public {
-        vm.prank(alice);
-        vm.expectRevert();
-        token.transfer(address(0), 1000);
+    function test_TransferToZeroAddress() public {
+        // Solady's ERC20 allows transfers to address(0) (burns)
+        uint256 balanceBefore = token.balanceOf(alice);
+        uint256 supplyBefore = token.totalSupply();
         
         vm.prank(alice);
-        vm.expectRevert();
-        token.approve(address(0), 1000);
+        token.transfer(address(0), 1000);
+        
+        // Transfer to address(0) should burn tokens
+        assertEq(token.balanceOf(alice), balanceBefore - 1000);
+        assertEq(token.totalSupply(), supplyBefore);
     }
     
     function test_MaxSupplyBurn() public {

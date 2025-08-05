@@ -22,12 +22,11 @@ contract CollateralVaultTest is TestBase {
         super.setUp();
         (token, pair, feeRouter, vault, lenderVault) = createAndLaunchToken("Test Token", "TEST", INITIAL_SUPPLY);
         
+        // Do a swap to activate the pair (move tokens out of pool)
         vm.prank(alice);
-        addLiquidity(pair, INITIAL_LIQUIDITY);
+        swap(pair, address(wbera), 0.1 ether, alice);
         
-        vm.prank(alice);
-        swap(pair, address(wbera), 1 ether, alice);
-        
+        // Fund the lender vault
         vm.prank(bob);
         wbera.approve(address(lenderVault), type(uint256).max);
         vm.prank(bob);
@@ -161,7 +160,7 @@ contract CollateralVaultTest is TestBase {
         
         lenderVault.accrueInterest();
         
-        (,,,uint256 debt,,) = vault.getAccountState(alice);
+        (,uint256 debt,,,) = vault.getAccountState(alice);
         assertGt(debt, borrowAmount);
     }
     
@@ -184,7 +183,7 @@ contract CollateralVaultTest is TestBase {
             vm.prank(bob);
             vault.markOTM(alice);
             
-            (,, bool isOTM,) = vault.otmPositions(alice);
+            (,bool isOTM) = vault.otmPositions(alice);
             assertTrue(isOTM);
         }
     }
