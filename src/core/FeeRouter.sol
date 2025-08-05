@@ -40,42 +40,59 @@ contract FeeRouter is ReentrancyGuard {
         emit Initialized(_pair, principalLp, 0);
     }
     
-    /// @notice Collect fees using canonical UniV2 fee-on pattern
-    /// @dev Anyone can call - only burns fee LP, never principal
+    /// @notice Collect fees using UniV2's _mintFee mechanism
+    /// @dev Battle-tested logic that avoids deadlock
     function collectFees() external nonReentrant {
-        OsitoPair p = OsitoPair(pair);
+        OsitoPair pair_ = OsitoPair(pair);
+
+        // ------------------------------------------------------------------- //
+        // 1. Has k grown since last mint/burn?  If not, exit early            //
+        // ------------------------------------------------------------------- //
+        (uint112 r0, uint112 r1,) = pair_.getReserves();
+        uint256 currentK  = uint256(r0) * uint256(r1);
+        uint256 storedK   = pair_.kLast();          // 0 straight after launch
+
+        if (storedK == 0 || currentK <= storedK) return;   // nothing to crystallise
+
+        // ------------------------------------------------------------------- //
+        // 2. Calculate EXACT minimum LP to satisfy burn requirements          //
+        //    Must ensure: liquidity * balance / totalSupply > 0 for BOTH tokens //
+        // ------------------------------------------------------------------- //
+        uint256 totalSupply = pair_.totalSupply();
+        uint256 bal0 = ERC20(pair_.token0()).balanceOf(address(pair_));
+        uint256 bal1 = ERC20(pair_.token1()).balanceOf(address(pair_));
         
-        // 1. Trigger _mintFee() with sacrificial 1 wei burn
-        if (p.kLast() != 0) {
-            uint256 lpBalance = p.balanceOf(address(this));
-            require(lpBalance > principalLp, "NO_LP_TO_SACRIFICE");
-            p.transfer(pair, 1);
-            p.burn(address(this));  // Direct call - will revert if burn fails
-        }
+        // To avoid rounding to zero: liquidity > totalSupply / min(bal0, bal1)
+        uint256 minBalance = bal0 < bal1 ? bal0 : bal1;
+        uint256 sacrificeAmount = (totalSupply / minBalance) + 1;
         
-        // 2. Compute EXCESS LP over principal
-        uint256 lpBal = p.balanceOf(address(this));
-        if (lpBal <= principalLp) return;  // No fees to collect
+        require(pair_.balanceOf(address(this)) >= sacrificeAmount, "ROUTER_HAS_NO_LP");
+        pair_.transfer(pair, sacrificeAmount);
+        pair_.burn(address(this));                  // revert bubbles if impossible
+
+        // ------------------------------------------------------------------- //
+        // 3. Whatever is now above principalLp is pure fee‑LP – burn it       //
+        // ------------------------------------------------------------------- //
+        uint256 lpBal = pair_.balanceOf(address(this));
+        if (lpBal <= principalLp) return;           // unlikely, but safe‑guard
         uint256 feeLp = lpBal - principalLp;
-        
-        // 3. Burn ONLY the fee LP (never touch principal)
-        p.transfer(pair, feeLp);
-        (uint256 a0, uint256 a1) = p.burn(address(this));
-        
-        // 4. Split outputs: 100% TOK burned, 100% QT to treasury
-        bool is0Tok = p.tokIsToken0();
-        (uint256 tokAmt, uint256 qtAmt) = is0Tok ? (a0, a1) : (a1, a0);
-        
-        // Burn all TOK received from fees
-        if (tokAmt > 0) {
-            OsitoToken(is0Tok ? p.token0() : p.token1()).burn(tokAmt);
-        }
-        
-        // Send all QT to treasury
-        if (qtAmt > 0) {
-            (is0Tok ? p.token1() : p.token0()).safeTransfer(treasury, qtAmt);
-        }
-        
+
+        pair_.transfer(pair, feeLp);                // send only fee‑LP
+        (uint256 amt0, uint256 amt1) = pair_.burn(address(this));
+
+        // ------------------------------------------------------------------- //
+        // 4. Destroy TOK, route QT to treasury                                //
+        // ------------------------------------------------------------------- //
+        bool tokIs0     = pair_.tokIsToken0();
+        address tokAddr = tokIs0 ? pair_.token0() : pair_.token1();
+        address qtAddr  = tokIs0 ? pair_.token1() : pair_.token0();
+
+        uint256 tokAmt  = tokIs0 ? amt0 : amt1;
+        uint256 qtAmt   = tokIs0 ? amt1 : amt0;
+
+        if (tokAmt > 0) OsitoToken(tokAddr).burn(tokAmt);
+        if (qtAmt  > 0) qtAddr.safeTransfer(treasury, qtAmt);
+
         emit FeesCollected(tokAmt, qtAmt);
     }
 }
