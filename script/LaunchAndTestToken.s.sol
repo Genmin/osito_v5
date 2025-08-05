@@ -42,6 +42,7 @@ contract LaunchAndTestToken is Script {
             "TestToken",
             "TEST",
             ONE_BILLION,
+            "https://ipfs.io/metadata/test", // metadataURI
             ONE_BERA,
             9900,  // 99% start fee (in bps)
             30,    // 0.3% end fee (in bps)

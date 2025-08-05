@@ -14,7 +14,7 @@ contract OsitoTokenTest is BaseTest {
         super.setUp();
         
         vm.prank(deployer);
-        token = new OsitoToken("Test Token", "TEST", SUPPLY, alice);
+        token = new OsitoToken("Test Token", "TEST", SUPPLY, "https://ipfs.io/metadata/test", alice);
         vm.label(address(token), "TestToken");
     }
     
@@ -26,6 +26,7 @@ contract OsitoTokenTest is BaseTest {
         assertEq(token.decimals(), 18);
         assertEq(token.totalSupply(), SUPPLY);
         assertEq(token.balanceOf(alice), SUPPLY);
+        assertEq(token.metadataURI(), "https://ipfs.io/metadata/test");
     }
     
     function testFuzz_Constructor(
@@ -38,7 +39,7 @@ contract OsitoTokenTest is BaseTest {
         supply = bound(supply, 0, type(uint256).max);
         
         vm.prank(deployer);
-        OsitoToken newToken = new OsitoToken(name, symbol, supply, recipient);
+        OsitoToken newToken = new OsitoToken(name, symbol, supply, "https://ipfs.io/metadata/fuzz", recipient);
         
         assertEq(newToken.name(), name);
         assertEq(newToken.symbol(), symbol);
@@ -90,6 +91,38 @@ contract OsitoTokenTest is BaseTest {
         
         assertEq(token.balanceOf(alice), SUPPLY - amount);
         assertEq(token.balanceOf(to), amount);
+    }
+    
+    // ============ MetadataURI Tests ============
+    
+    function test_MetadataURI() public view {
+        assertEq(token.metadataURI(), "https://ipfs.io/metadata/test");
+    }
+    
+    function testFuzz_MetadataURI(string memory metadataURI) public {
+        vm.assume(bytes(metadataURI).length < 1000); // Reasonable limit
+        
+        OsitoToken newToken = new OsitoToken(
+            "Test Token",
+            "TEST", 
+            1000 * 1e18,
+            metadataURI,
+            alice
+        );
+        
+        assertEq(newToken.metadataURI(), metadataURI);
+    }
+    
+    function test_EmptyMetadataURI() public {
+        OsitoToken newToken = new OsitoToken(
+            "Test Token",
+            "TEST",
+            1000 * 1e18,
+            "",
+            alice
+        );
+        
+        assertEq(newToken.metadataURI(), "");
     }
     
     // ============ Approve & TransferFrom Tests ============

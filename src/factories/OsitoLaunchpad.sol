@@ -18,7 +18,8 @@ contract OsitoLaunchpad {
         address indexed feeRouter,
         string name,
         string symbol,
-        uint256 supply
+        uint256 supply,
+        string metadataURI
     );
     
     constructor(address _weth, address _treasury) {
@@ -32,6 +33,7 @@ contract OsitoLaunchpad {
         string memory name,
         string memory symbol,
         uint256 supply,
+        string memory metadataURI,
         uint256 wethAmount,
         uint256 startFeeBps,
         uint256 endFeeBps,
@@ -57,7 +59,7 @@ contract OsitoLaunchpad {
         OsitoPair(pair).setFeeRouter(feeRouter);
         
         // Create token and mint entire supply to pair
-        token = address(new OsitoToken(name, symbol, supply, pair));
+        token = address(new OsitoToken(name, symbol, supply, metadataURI, pair));
         
         // Set token0 in pair and update initialSupply
         OsitoPair(pair).initialize(token);
@@ -68,6 +70,6 @@ contract OsitoLaunchpad {
         // CRITICAL: Mint LP tokens to address(0) - ETERNAL LIQUIDITY LOCK
         OsitoPair(pair).mint(address(0));
         
-        emit TokenLaunched(token, pair, feeRouter, name, symbol, supply);
+        emit TokenLaunched(token, pair, feeRouter, name, symbol, supply, metadataURI);
     }
 }

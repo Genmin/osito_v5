@@ -22,6 +22,7 @@ async function launchTestToken() {
   const name = "Test Token V5";
   const symbol = "TESTV5";
   const supply = ethers.parseEther('1000000000'); // 1B tokens
+  const metadataURI = "https://ipfs.io/metadata/test"; // metadata URI
   const wethAmount = ethers.parseEther('1'); // 1 WBERA initial liquidity
   
   console.log('Token Parameters:');
@@ -44,7 +45,7 @@ async function launchTestToken() {
   const feeDecayTarget = ethers.parseEther('100000000'); // 100M volume target
   
   console.log('Launching token...');
-  tx = await launchpad.launchToken(name, symbol, supply, wethAmount, startFeeBps, endFeeBps, feeDecayTarget);
+  tx = await launchpad.launchToken(name, symbol, supply, metadataURI, wethAmount, startFeeBps, endFeeBps, feeDecayTarget);
   const receipt = await tx.wait();
   console.log('Transaction:', tx.hash);
   console.log('Block:', receipt.blockNumber);

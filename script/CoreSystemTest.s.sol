@@ -36,6 +36,7 @@ contract CoreSystemTest is Script {
             "ExtremeTest",
             "XTEST",
             10_000_000_000 * 1e18,  // 10 billion supply
+            "ipfs://QmExtremeTest",  // metadataURI
             0.5 ether,              // Only 0.5 BERA liquidity (extreme!)
             9900,                   // 99% start fee
             30,                     // 0.3% end fee

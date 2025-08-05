@@ -7,15 +7,18 @@ import {ERC20} from "solady/tokens/ERC20.sol";
 contract OsitoToken is ERC20 {
     string private _name;
     string private _symbol;
+    string private _metadataURI;
     
     constructor(
         string memory name_,
         string memory symbol_,
         uint256 supply,
+        string memory metadataURI_,
         address recipient
     ) {
         _name = name_;
         _symbol = symbol_;
+        _metadataURI = metadataURI_;
         _mint(recipient, supply);
     }
     
@@ -29,6 +32,11 @@ contract OsitoToken is ERC20 {
     
     function decimals() public pure override returns (uint8) {
         return 18;
+    }
+    
+    /// @notice Get metadata URI (for IPFS metadata linking)
+    function metadataURI() public view returns (string memory) {
+        return _metadataURI;
     }
     
     /// @notice Burn tokens to reduce total supply (critical for pMin ratchet)

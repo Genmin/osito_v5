@@ -68,6 +68,7 @@ contract MainnetForkTests is Test {
             "Fork Test Token",
             "FORK",
             SUPPLY,
+            "https://ipfs.io/metadata/test", // metadataURI
             INITIAL_LIQUIDITY,
             9900, // 99% start fee
             30,   // 0.3% end fee

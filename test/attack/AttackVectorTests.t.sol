@@ -13,7 +13,7 @@ contract MaliciousToken is OsitoToken {
     address public owner;
     
     constructor(string memory name, string memory symbol, uint256 supply) 
-        OsitoToken(name, symbol, supply, msg.sender) {
+        OsitoToken(name, symbol, supply, "https://ipfs.io/metadata/test", msg.sender) {
         owner = msg.sender;
     }
     

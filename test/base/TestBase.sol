@@ -133,6 +133,7 @@ abstract contract TestBase is Test {
             name,
             symbol,
             supply,
+            "https://ipfs.io/metadata/test", // metadataURI
             1 ether,  // wethAmount for initial liquidity
             9900,     // startFeeBps (99%)
             30,       // endFeeBps (0.3%)

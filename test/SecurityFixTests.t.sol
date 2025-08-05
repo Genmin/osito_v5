@@ -47,6 +47,7 @@ contract SecurityFixTests is Test {
             "Test Token",
             "TEST",
             1000000 * 1e18,
+            "https://ipfs.io/metadata/test", // metadataURI
             100000 * 1e18,
             9900,  // 99% start fee
             30,    // 0.3% end fee

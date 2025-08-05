@@ -39,6 +39,7 @@ contract DeployFreshV5 is Script {
             "Test Osito V5 Robust", 
             "TOK5R", 
             1_000_000 * 1e18,  // 1M supply
+            "ipfs://QmTestOsitoV5Metadata", // metadataURI
             wethAmount,        // 0.001 WBERA initial liquidity
             200,               // 2% start fee
             30,                // 0.3% end fee

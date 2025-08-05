@@ -171,6 +171,7 @@ abstract contract BaseTest is Test {
             name,
             symbol,
             supply,
+            "https://ipfs.io/metadata/test", // metadataURI
             initialLiquidity,
             9900,  // 99% initial fee
             30,    // 0.3% final fee

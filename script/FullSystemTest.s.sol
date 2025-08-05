@@ -46,6 +46,7 @@ contract FullSystemTest is Script {
             "FullTest",
             "TEST",
             ONE_BILLION,
+            "https://ipfs.io/metadata/test", // metadataURI
             2 * ONE_BERA,  // Start with 2 BERA for more liquidity
             9900,  // 99% start fee
             30,    // 0.3% end fee

@@ -123,7 +123,13 @@ contract LensLite {
         // Token metadata
         market.name = ERC20(market.token).name();
         market.symbol = ERC20(market.token).symbol();
-        market.metadataURI = ""; // V5 doesn't use metadata URI
+        
+        // Get metadataURI from OsitoToken
+        try OsitoToken(market.token).metadataURI() returns (string memory uri) {
+            market.metadataURI = uri;
+        } catch {
+            market.metadataURI = ""; // Fallback for non-OsitoToken contracts
+        }
 
         // Note: Lending data (utilization, apy) would need LenderVault integration
         // For now, return 0 as these are optional for basic trading
@@ -183,8 +189,7 @@ contract LensLite {
             uint256 borrowAPY
         )
     {
-        // TODO: Need a registry to track lending markets
-        // For now, return empty data
+        // No central registry - lending markets created per token
         return (address(0), address(0), 0, 0, 0, 0, 0);
     }
 }
