@@ -4,57 +4,50 @@ pragma solidity ^0.8.24;
 import {CollateralVault} from "../core/CollateralVault.sol";
 import {LenderVault} from "../core/LenderVault.sol";
 
-/// @notice Permissionless vault deployment
-/// @dev NO Ownable - anyone can deploy
 contract LendingFactory {
-    // Uniswap V2-style mappings for vault discovery
-    mapping(address => mapping(address => address)) public getCollateralVault; // collateralToken => lendingAsset => vault
-    mapping(address => mapping(address => address)) public getLenderVault;     // lendingAsset => collateralToken => vault  
-    address[] public allCollateralVaults;
-    address[] public allLenderVaults;
+    address public immutable lenderVault;
+    
+    mapping(address => address) public collateralVaults;
+    address[] public allMarkets;
 
-    event VaultsDeployed(
-        address indexed collateralToken,
-        address indexed lendingAsset,
+    error MarketExists();
+    
+    event MarketCreated(
         address indexed pair,
+        address lenderVault,
         address collateralVault,
-        address lenderVault
+        uint256 marketIndex
     );
     
-    /// @notice Deploy lending vaults for any pair
-    /// @dev Fully permissionless - no restrictions
-    function deployVaults(
-        address collateralToken,
-        address lendingAsset,
-        address pair
-    ) external returns (address collateralVault, address lenderVault) {
-        // Prevent duplicate deployments (Uniswap V2 pattern)
-        require(getCollateralVault[collateralToken][lendingAsset] == address(0), 'LendingFactory: VAULT_EXISTS');
+    constructor(address lendingAsset) {
+        lenderVault = address(new LenderVault(lendingAsset, address(this)));
+    }
+    
+    function createLendingMarket(address pair) external returns (address collateralVault) {
+        if (collateralVaults[pair] != address(0)) revert MarketExists();
         
-        // Deploy lender vault first
-        lenderVault = address(new LenderVault(lendingAsset, address(0)));
+        address token0 = IOsitoPair(pair).token0();
+        address token1 = IOsitoPair(pair).token1();
+        bool tokIsToken0 = IOsitoPair(pair).tokIsToken0();
+        address collateralToken = tokIsToken0 ? token0 : token1;
         
-        // Deploy collateral vault
         collateralVault = address(new CollateralVault(collateralToken, pair, lenderVault));
         
-        // Authorize collateral vault to borrow/repay
         LenderVault(lenderVault).authorize(collateralVault);
         
-        // Store vault addresses (Uniswap V2 pattern)
-        getCollateralVault[collateralToken][lendingAsset] = collateralVault;
-        getLenderVault[lendingAsset][collateralToken] = lenderVault;
-        allCollateralVaults.push(collateralVault);
-        allLenderVaults.push(lenderVault);
+        collateralVaults[pair] = collateralVault;
+        allMarkets.push(pair);
         
-        emit VaultsDeployed(collateralToken, lendingAsset, pair, collateralVault, lenderVault);
+        emit MarketCreated(pair, lenderVault, collateralVault, allMarkets.length - 1);
     }
+    
+    function allMarketsLength() external view returns (uint256) {
+        return allMarkets.length;
+    }
+}
 
-    // Enumeration functions (Uniswap V2 pattern)
-    function allCollateralVaultsLength() external view returns (uint) {
-        return allCollateralVaults.length;
-    }
-
-    function allLenderVaultsLength() external view returns (uint) {
-        return allLenderVaults.length;
-    }
+interface IOsitoPair {
+    function token0() external view returns (address);
+    function token1() external view returns (address);
+    function tokIsToken0() external view returns (bool);
 }

@@ -29,12 +29,9 @@ contract LenderVault is ERC4626 {
         _;
     }
     
-    constructor(address asset_, address _collateralVault) {
+    constructor(address asset_, address _factory) {
         _asset = asset_;
-        factory = msg.sender;
-        if (_collateralVault != address(0)) {
-            authorized[_collateralVault] = true;
-        }
+        factory = _factory;
         lastAccrueTime = block.timestamp;
     }
     

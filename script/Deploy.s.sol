@@ -31,9 +31,8 @@ contract Deploy is Script {
         ositoLaunchpad = address(new OsitoLaunchpad(wbera, treasury));
         console.log("OsitoLaunchpad deployed at:", ositoLaunchpad);
         
-        // 2. Deploy LendingFactory
         console.log("Deploying LendingFactory...");
-        lendingFactory = address(new LendingFactory());
+        lendingFactory = address(new LendingFactory(wbera));
         console.log("LendingFactory deployed at:", lendingFactory);
         
         // 3. Deploy LensLite
