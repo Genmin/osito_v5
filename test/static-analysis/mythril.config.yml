@@ -1,0 +1,75 @@
+# Mythril Security Analysis Configuration
+analysis:
+  timeout: 3600  # 1 hour timeout
+  max_depth: 50
+  create_timeout: 120
+  strategy: "bfs"  # breadth-first search
+  modules:
+    - "arithmetic"
+    - "assertion"
+    - "ether_thief"
+    - "exceptions"
+    - "external_calls"
+    - "integer"
+    - "multisig_bug"
+    - "suicide"
+    - "timestamp"
+    - "tx_order_dependence"
+    - "unchecked_call"
+    - "weak_randomness"
+
+# Contract-specific configurations
+contracts:
+  OsitoToken:
+    priority: "high"
+    focus_areas:
+      - "burn function overflow protection"
+      - "transfer logic correctness"
+      - "approval edge cases"
+  
+  OsitoPair:
+    priority: "critical"
+    focus_areas:
+      - "K invariant maintenance"
+      - "pMin calculation accuracy"
+      - "LP token restrictions"
+      - "swap calculation overflow"
+      - "fee collection logic"
+  
+  CollateralVault:
+    priority: "critical"
+    focus_areas:
+      - "collateral accounting"
+      - "borrowing limits enforcement"
+      - "liquidation logic"
+      - "interest calculation"
+  
+  LenderVault:
+    priority: "high"
+    focus_areas:
+      - "deposit/withdrawal logic"
+      - "share calculation"
+      - "interest accrual"
+  
+  PMinLib:
+    priority: "critical"
+    focus_areas:
+      - "mathematical accuracy"
+      - "overflow prevention"
+      - "edge case handling"
+
+# Output configuration
+output:
+  format: ["json", "markdown", "sarif"]
+  directory: "reports/mythril/"
+  severity_levels: ["High", "Medium", "Low"]
+
+# Filtering
+ignore:
+  - "SWC-101"  # Integer Overflow (if using SafeMath)
+  - "SWC-116"  # Block timestamp dependence (if acceptable)
+
+# Performance tuning
+performance:
+  parallel_jobs: 4
+  memory_limit: "8GB"

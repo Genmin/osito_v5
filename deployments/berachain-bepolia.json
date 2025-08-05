@@ -1,0 +1,26 @@
+{
+  "chainId": 80069,
+  "name": "berachain-bepolia",
+  "contracts": {
+    "OsitoLaunchpad": {
+      "address": "0x763275e2581a0b14bd9da0c37372e745a6b66cd1",
+      "abi": "OsitoLaunchpad"
+    },
+    "LendingFactory": {
+      "address": "0xac02e296d028233a61748816302bf42e6f5da122",
+      "abi": "LendingFactory"
+    },
+    "LensLite": {
+      "address": "0xadfd8bc5bcb4a202ad5e8cc6cfff1f93d79410d6",
+      "abi": "LensLite"
+    },
+    "SwapRouter": {
+      "address": "0x20e0453c3d9efa912a0912bb6a1680287f0399ff",
+      "abi": "SwapRouter"
+    },
+    "WBERA": {
+      "address": "0x6969696969696969696969696969696969696969",
+      "abi": "IERC20"
+    }
+  }
+}

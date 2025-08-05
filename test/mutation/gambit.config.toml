@@ -1,0 +1,116 @@
+# Gambit Mutation Testing Configuration for Osito Protocol
+
+[mutate]
+# Source files to mutate
+solidity_files = [
+    "src/core/OsitoToken.sol",
+    "src/core/OsitoPair.sol", 
+    "src/core/CollateralVault.sol",
+    "src/core/LenderVault.sol",
+    "src/core/FeeRouter.sol",
+    "src/libraries/PMinLib.sol",
+    "src/factories/OsitoLaunchpad.sol",
+    "src/factories/LendingFactory.sol"
+]
+
+# Mutation operators to apply
+operators = [
+    "assignment-op-replacement",
+    "binary-op-replacement", 
+    "boolean-literal-replacement",
+    "conditional-boundary",
+    "delete-expression",
+    "function-call-delete",
+    "if-cond-negation",
+    "math-assignment-replacement",
+    "require-replacement",
+    "swap-arguments-function-call",
+    "unary-operator-replacement"
+]
+
+# Functions to prioritize for mutation (critical functions)
+priority_functions = [
+    # OsitoToken
+    "burn",
+    "transfer", 
+    "transferFrom",
+    
+    # OsitoPair
+    "swap",
+    "mint",
+    "pMin",
+    "collectFees",
+    
+    # CollateralVault
+    "depositCollateral",
+    "withdrawCollateral", 
+    "borrow",
+    "repay",
+    "markOTM",
+    "recover",
+    
+    # LenderVault
+    "deposit",
+    "withdraw",
+    "accrueInterest",
+    
+    # PMinLib
+    "calculate"
+]
+
+[test]
+# Test command to run for each mutation
+test_command = "forge test --match-path 'test/foundry/unit/*.t.sol' --match-path 'test/foundry/fuzz/*.t.sol'"
+
+# Timeout for each test run (in seconds)
+timeout = 300
+
+# Number of parallel test runs
+parallel_jobs = 4
+
+[output]
+# Output directory for mutation results
+output_dir = "test/mutation/results"
+
+# Report formats
+formats = ["json", "html", "csv"]
+
+# Mutation score threshold (percentage of mutants killed)
+min_mutation_score = 80.0
+
+[filtering]
+# Skip mutations in these areas (typically test files)
+skip_paths = [
+    "test/",
+    "script/",
+    "lib/"
+]
+
+# Skip specific mutation types that might not be relevant
+skip_operators = [
+    # Skip these if they cause too many false positives
+]
+
+# Skip mutating specific functions (constructor, view functions, etc.)
+skip_functions = [
+    "constructor",
+    "name",
+    "symbol", 
+    "decimals",
+    "metadataURI"
+]
+
+[advanced]
+# Advanced mutation testing options
+
+# Only test critical paths
+critical_path_only = true
+
+# Maximum number of mutations per file
+max_mutations_per_file = 50
+
+# Seed for deterministic mutation generation
+random_seed = 42
+
+# Enable mutation clustering (group similar mutations)
+enable_clustering = true

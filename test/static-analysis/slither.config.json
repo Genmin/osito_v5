@@ -1,0 +1,39 @@
+{
+  "compilation_unit": ".",
+  "detector_filters": [
+    {
+      "detector": "reentrancy-eth",
+      "severity": "high"
+    },
+    {
+      "detector": "arbitrary-send-eth",
+      "severity": "high"
+    },
+    {
+      "detector": "incorrect-equality",
+      "severity": "medium"
+    },
+    {
+      "detector": "divide-before-multiply",
+      "severity": "medium"
+    },
+    {
+      "detector": "weak-prng",
+      "severity": "high"
+    }
+  ],
+  "exclude_dependencies": false,
+  "exclude_informational": false,
+  "exclude_low": false,
+  "exclude_medium": false,
+  "exclude_high": false,
+  "json": "reports/slither-report.json",
+  "markdown": "reports/slither-report.md",
+  "filter_paths": [
+    "test/",
+    "script/",
+    "lib/"
+  ],
+  "disable_color": false,
+  "timeout": 300
+}
