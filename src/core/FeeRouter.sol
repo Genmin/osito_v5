@@ -44,8 +44,12 @@ contract FeeRouter is ReentrancyGuard {
         
         if (lpBalance <= principalLp) return; // No fees to collect
         
-        // Only collect excess LP above principal
-        uint256 feeLp = lpBalance - principalLp;
+        // Calculate excess LP (accumulated fees)
+        uint256 excessLp = lpBalance - principalLp;
+        
+        // 90% of fees extracted, 10% stays in pool
+        uint256 feeLp = excessLp * 9000 / 10000;
+        
         OsitoPair(pair).transfer(pair, feeLp);
         (uint256 amt0, uint256 amt1) = OsitoPair(pair).burn(address(this));
         

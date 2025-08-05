@@ -14,24 +14,28 @@ contract LenderVault is ERC4626 {
 
     address private immutable _asset;
     address public immutable factory;
+    address public immutable treasury;
     mapping(address => bool) public authorized;
     
     uint256 public totalBorrows;
+    uint256 public totalReserves; // Protocol reserves (Compound pattern)
     uint256 public borrowIndex = 1e18;
     uint256 public lastAccrueTime;
     
     uint256 public constant BASE_RATE = 2e16; // 2% APR
     uint256 public constant RATE_SLOPE = 5e16; // 5% APR slope
     uint256 public constant KINK = 8e17; // 80% utilization kink
+    uint256 public constant RESERVE_FACTOR = 1e17; // 10% reserveFactor (0.1 * 1e18)
     
     modifier onlyAuthorized() {
         require(authorized[msg.sender], "UNAUTHORIZED");
         _;
     }
     
-    constructor(address asset_, address _factory) {
+    constructor(address asset_, address _factory, address _treasury) {
         _asset = asset_;
         factory = _factory;
+        treasury = _treasury;
         lastAccrueTime = block.timestamp;
     }
     
@@ -103,11 +107,17 @@ contract LenderVault is ERC4626 {
         
         uint256 rate = _borrowRate();
         uint256 timeDelta = currentTime - lastAccrueTime;
-        // CRITICAL FIX: Divide by seconds in a year
-        uint256 interestAccumulated = rate.mulDiv(timeDelta, 365 days);
+        uint256 interestFactor = rate.mulDiv(timeDelta, 365 days);
         
-        totalBorrows += totalBorrows.mulDiv(interestAccumulated, 1e18);
-        borrowIndex += borrowIndex.mulDiv(interestAccumulated, 1e18);
+        // Calculate interest accumulated (Compound pattern)
+        uint256 interestAccumulated = totalBorrows.mulDiv(interestFactor, 1e18);
+        
+        // Update state following Compound pattern:
+        // totalBorrowsNew = interestAccumulated + totalBorrows
+        // totalReservesNew = interestAccumulated * reserveFactor + totalReserves
+        totalBorrows += interestAccumulated;
+        totalReserves += interestAccumulated.mulDiv(RESERVE_FACTOR, 1e18);
+        borrowIndex += borrowIndex.mulDiv(interestFactor, 1e18);
         lastAccrueTime = currentTime;
     }
     
@@ -131,5 +141,18 @@ contract LenderVault is ERC4626 {
     
     function _tokenSymbol(address assetAddr) private view returns (string memory) {
         return string(abi.encodePacked("o", ERC20(assetAddr).symbol()));
+    }
+    
+    /// @notice Reduces reserves by transferring to treasury
+    /// @dev Simplified Compound pattern - only treasury can withdraw
+    function reduceReserves(uint256 amount) external {
+        require(msg.sender == treasury, "ONLY_TREASURY");
+        _accrue();
+        
+        require(amount <= totalReserves, "INSUFFICIENT_RESERVES");
+        require(amount <= ERC20(asset()).balanceOf(address(this)), "INSUFFICIENT_CASH");
+        
+        totalReserves -= amount;
+        asset().safeTransfer(treasury, amount);
     }
 }

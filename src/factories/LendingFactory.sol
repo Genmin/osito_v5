@@ -6,6 +6,7 @@ import {LenderVault} from "../core/LenderVault.sol";
 
 contract LendingFactory {
     address public immutable lenderVault;
+    address public immutable treasury;
     
     mapping(address => address) public collateralVaults;
     address[] public allMarkets;
@@ -19,8 +20,9 @@ contract LendingFactory {
         uint256 marketIndex
     );
     
-    constructor(address lendingAsset) {
-        lenderVault = address(new LenderVault(lendingAsset, address(this)));
+    constructor(address lendingAsset, address _treasury) {
+        treasury = _treasury;
+        lenderVault = address(new LenderVault(lendingAsset, address(this), _treasury));
     }
     
     function createLendingMarket(address pair) external returns (address collateralVault) {
