@@ -3,7 +3,6 @@ pragma solidity ^0.8.24;
 
 import {ERC20} from "solady/tokens/ERC20.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 
 import {OsitoPair} from "./OsitoPair.sol";
@@ -13,7 +12,6 @@ import {OsitoToken} from "./OsitoToken.sol";
 /// @dev NO Ownable - fully permissionless, ONE per pair
 contract FeeRouter is ReentrancyGuard {
     using SafeTransferLib for address;
-    using FixedPointMathLib for uint256;
     
     address public immutable treasury;
     address public immutable factory;
@@ -62,7 +60,10 @@ contract FeeRouter is ReentrancyGuard {
         uint256 bal0 = ERC20(pair_.token0()).balanceOf(address(pair_));
         uint256 bal1 = ERC20(pair_.token1()).balanceOf(address(pair_));
         
-        // To avoid rounding to zero: liquidity > totalSupply / min(bal0, bal1)
+        // UniV2 burn requires: amt = (L * B) / S > 0 for both tokens
+        // With integer division rounding down, this means: L * B >= S + 1
+        // Therefore: L > S / min(B0, B1)
+        // Using floor division + 1 ensures strict inequality
         uint256 minBalance = bal0 < bal1 ? bal0 : bal1;
         uint256 sacrificeAmount = (totalSupply / minBalance) + 1;
         
