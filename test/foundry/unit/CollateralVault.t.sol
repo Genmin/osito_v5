@@ -37,15 +37,20 @@ contract CollateralVaultTest is BaseTest {
         // Create collateral vault
         vault = _createLendingMarket(address(pair));
         
-        // Fund lender vault
+        // Fund lender vault with more liquidity for borrowing tests
         vm.startPrank(bob);
+        // Convert ETH to WETH if needed - deposit 500 ether for sufficient liquidity
+        if (weth.balanceOf(bob) < 500 ether) {
+            weth.deposit{value: 500 ether}();
+        }
         weth.approve(address(lenderVault), type(uint256).max);
-        lenderVault.deposit(50 ether, bob);
+        lenderVault.deposit(500 ether, bob);
         vm.stopPrank();
         
         // Get some tokens for testing by swapping
-        vm.prank(alice);
+        vm.startPrank(alice);
         _swap(pair, address(weth), 1 ether, alice);
+        vm.stopPrank();
     }
     
     // ============ Deposit Tests ============

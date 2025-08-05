@@ -222,7 +222,8 @@ abstract contract BaseTest is Test {
         uint256 amountInWithFee = (amountIn * (10000 - feeBps)) / 10000;
         amountOut = (amountInWithFee * reserveOut) / (reserveIn + amountInWithFee);
         
-        // Transfer input token to pair (caller must have tokens and approval)
+        // Transfer input token to pair (must be called within prank context)
+        // The transfer is made by the currently pranked address
         ERC20(tokenIn).transfer(address(pair), amountIn);
         
         // Execute swap
