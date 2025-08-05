@@ -232,9 +232,9 @@ contract CriticalFuzzTest is BaseTest {
         vm.prank(bob);
         CollateralVault(collateralVault).depositCollateral(collateralAmount);
         
-        // Borrow based on pMin
+        // Borrow based on pMin (full amount, no margin)
         uint256 pMin = OsitoPair(pair).pMin();
-        uint256 maxBorrow = (collateralAmount * pMin * 80) / (100 * 1e18); // 80% of max
+        uint256 maxBorrow = (collateralAmount * pMin) / 1e18;
         uint256 borrowAmount = (maxBorrow * borrowPercent) / 100;
         
         if (borrowAmount > 0) {
@@ -244,26 +244,28 @@ contract CriticalFuzzTest is BaseTest {
             // Advance time
             advanceTime(timeElapsed);
             
-            // Check if position is healthy
-            (uint256 collateral, uint256 debt, bool healthy) = 
-                CollateralVault(collateralVault).getAccountHealth(bob);
+            // Check position state
+            (uint256 collateral, uint256 debt, bool isHealthy, bool isOTM, uint256 timeUntilRecoverable) = 
+                CollateralVault(collateralVault).getAccountState(bob);
             
             // Debt should have grown due to interest
             assertTrue(debt >= borrowAmount, "Debt didn't accrue");
             
-            if (shouldLiquidate && !healthy) {
-                // Attempt liquidation
-                vm.deal(liquidator, debt);
+            if (shouldLiquidate && !isHealthy) {
+                // Mark position as OTM
                 vm.prank(liquidator);
-                weth.deposit{value: debt}();
-                vm.prank(liquidator);
-                weth.approve(collateralVault, debt);
+                CollateralVault(collateralVault).markOTM(bob);
                 
-                vm.prank(liquidator);
-                CollateralVault(collateralVault).liquidate(bob, debt / 2);
+                // Advance past grace period
+                advanceTime(72 hours + 1);
                 
-                // Liquidator should have received collateral
-                assertTrue(OsitoToken(token).balanceOf(liquidator) > 0);
+                // Recover position
+                vm.prank(liquidator);
+                CollateralVault(collateralVault).recover(bob);
+                
+                // Position should be cleared
+                (,uint256 debtAfter,,, ) = CollateralVault(collateralVault).getAccountState(bob);
+                assertEq(debtAfter, 0);
             }
         }
     }

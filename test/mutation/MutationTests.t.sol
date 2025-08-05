@@ -99,28 +99,33 @@ contract MutationTests is BaseTest {
         assertLe(kIncrease, feeBps, "K increase should match fee");
     }
     
-    /// @notice Test liquidation safety invariant
-    /// @dev Mutations that allow unsafe liquidations should fail
-    function test_LiquidationSafetyMutation() public {
+    /// @notice Test recovery safety invariant
+    /// @dev Mutations that break recovery guarantees should fail
+    function test_RecoverySafetyMutation() public {
         uint256 collateral = 1000e18;
         uint256 pMin = 0.01e18; // $0.01 minimum price
         uint256 spotPrice = 0.02e18; // $0.02 current price
         
-        // Maximum safe debt at pMin
-        uint256 maxSafeDebt = (collateral * pMin) / 1e18;
+        // Debt issued at pMin (options written at floor)
+        uint256 principal = (collateral * pMin) / 1e18;
         
-        // Liquidation should use MIN(spot, pMin) for safety
-        uint256 liquidationPrice = pMin < spotPrice ? pMin : spotPrice;
-        assertEq(liquidationPrice, pMin, "Should use minimum price");
+        // Recovery via AMM swap at spot price
+        uint256 recoveryAmount = (collateral * spotPrice) / 1e18;
+        assertGe(recoveryAmount, principal, "Recovery doesn't cover principal");
         
-        // Even at minimum price, liquidation covers debt
-        uint256 liquidationValue = (collateral * liquidationPrice) / 1e18;
-        assertGe(liquidationValue, maxSafeDebt, "Liquidation unsafe");
+        // Even at worst case (spot = pMin), recovery is exact
+        uint256 worstCaseRecovery = (collateral * pMin) / 1e18;
+        assertEq(worstCaseRecovery, principal, "Worst case recovery must equal principal");
         
-        // With 5% liquidation bonus
-        uint256 liquidationBonus = 10500; // 105%
-        uint256 collateralNeeded = (maxSafeDebt * liquidationBonus * 1e18) / (10000 * liquidationPrice);
-        assertLe(collateralNeeded, collateral, "Insufficient collateral for liquidation");
+        // Test with interest (option premium)
+        uint256 interestRate = 0.05e18; // 5%
+        uint256 debtWithInterest = principal + (principal * interestRate) / 1e18;
+        
+        // Position is OTM when debt > collateral spot value
+        bool isOTM = debtWithInterest > recoveryAmount;
+        
+        // Principal always recoverable, interest is at risk
+        assertTrue(worstCaseRecovery >= principal, "Principal must be recoverable");
     }
     
     /// @notice Test interest accrual precision

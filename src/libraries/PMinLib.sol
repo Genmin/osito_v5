@@ -32,14 +32,26 @@ library PMinLib {
             return spotPrice.mulDiv(BASIS_POINTS - LIQ_BOUNTY_BPS, BASIS_POINTS);
         }
         
-        // Calculate final reserves after all external tokens swapped
-        uint256 k = tokReserves * qtReserves;
+        // Overflow protection for k
+        uint256 k;
+        unchecked {
+            k = tokReserves * qtReserves;
+            if (k / tokReserves != qtReserves) return 0; // Overflow
+        }
+        
         uint256 tokToSwap = tokTotalSupply - tokReserves;
         uint256 effectiveSwap = tokToSwap.mulDiv(BASIS_POINTS - feeBps, BASIS_POINTS);
         uint256 xFinal = tokReserves + effectiveSwap;
         
+        // Prevent division by zero or near-zero
+        if (xFinal < 1e9) return 0;
+        
         // pMin = k / xFinal² (scaled by WAD)
-        uint256 pMinGross = k.mulDiv(WAD, xFinal).mulDiv(WAD, xFinal);
+        // Split calculation to prevent overflow
+        uint256 pMinTemp = k.mulDiv(WAD, xFinal);
+        if (pMinTemp == 0) return 0;
+        
+        uint256 pMinGross = pMinTemp.mulDiv(WAD, xFinal);
         
         // Apply liquidation bounty discount
         return pMinGross.mulDiv(BASIS_POINTS - LIQ_BOUNTY_BPS, BASIS_POINTS);

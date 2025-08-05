@@ -126,13 +126,15 @@ contract FullProtocolFlowTest is BaseTest {
         collateralVault.depositCollateral(bobTokens);
         
         uint256 pMin = pair.pMin();
-        uint256 maxBorrow = (bobTokens * pMin * 80) / (100 * 1e18); // 80% LTV
+        uint256 maxBorrow = (bobTokens * pMin) / 1e18; // Full pMin value
         
+        // Borrow 50% of max to leave room for interest
+        uint256 borrowAmount = maxBorrow / 2;
         vm.prank(bob);
-        collateralVault.borrow(maxBorrow);
+        collateralVault.borrow(borrowAmount);
         
         console2.log("Collateral deposited:", bobTokens);
-        console2.log("Amount borrowed:", maxBorrow);
+        console2.log("Amount borrowed:", borrowAmount);
         console2.log("Borrow rate:", lenderVault.borrowRate());
         
         // Phase 5: More Trading & Burns
@@ -198,12 +200,12 @@ contract FullProtocolFlowTest is BaseTest {
         
         advanceTime(30 days);
         
-        (uint256 collateral, uint256 debtBefore,) = collateralVault.getAccountHealth(bob);
+        (uint256 collateral, uint256 debtBefore, bool isHealthy, bool isOTM,) = collateralVault.getAccountState(bob);
         
         // Trigger interest accrual
         lenderVault.accrueInterest();
         
-        (, uint256 debtAfter,) = collateralVault.getAccountHealth(bob);
+        (, uint256 debtAfter,,,) = collateralVault.getAccountState(bob);
         
         console2.log("Debt after 30 days:", debtAfter);
         console2.log("Interest accrued:", debtAfter - debtBefore);
@@ -217,7 +219,7 @@ contract FullProtocolFlowTest is BaseTest {
         vm.prank(bob);
         collateralVault.repay(repayAmount);
         
-        (, uint256 debtFinal,) = collateralVault.getAccountHealth(bob);
+        (, uint256 debtFinal,,,) = collateralVault.getAccountState(bob);
         console2.log("Remaining debt:", debtFinal);
         
         // Final State
