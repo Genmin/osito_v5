@@ -10,17 +10,18 @@ import {OsitoPair} from "./OsitoPair.sol";
 import {OsitoToken} from "./OsitoToken.sol";
 
 /// @notice Collects fees and burns tokens to increase pMin
-/// @dev NO Ownable - fully permissionless
+/// @dev NO Ownable - fully permissionless, ONE per pair
 contract FeeRouter is ReentrancyGuard {
     using SafeTransferLib for address;
     using FixedPointMathLib for uint256;
     
     address public immutable treasury;
     address public immutable factory;
-    mapping(address => uint256) public principalLp; // Track seed liquidity per pair
+    address public pair;
+    uint256 public principalLp;
     
-    event FeesCollected(address indexed pair, uint256 tokBurned, uint256 qtCollected);
-    event PrincipalLpSet(address indexed pair, uint256 amount);
+    event FeesCollected(uint256 tokBurned, uint256 qtCollected);
+    event PrincipalLpSet(uint256 amount);
     
     constructor(address _treasury) {
         treasury = _treasury;
@@ -28,23 +29,23 @@ contract FeeRouter is ReentrancyGuard {
     }
 
     /// @notice Set principal LP (called once after initial mint)
-    function setPrincipalLp(address pair) external {
+    function setPrincipalLp(address _pair) external {
         require(msg.sender == factory, "ONLY_FACTORY");
-        require(principalLp[pair] == 0, "ALREADY_SET");
-        principalLp[pair] = OsitoPair(pair).balanceOf(address(this));
-        emit PrincipalLpSet(pair, principalLp[pair]);
+        require(pair == address(0), "ALREADY_SET");
+        pair = _pair;
+        principalLp = OsitoPair(_pair).balanceOf(address(this));
+        emit PrincipalLpSet(principalLp);
     }
     
     /// @notice Collect fees with reentrancy protection and LP floor
     /// @dev Anyone can call - permissionless fee collection
-    function collectFees(address pair) external nonReentrant {
+    function collectFees() external nonReentrant {
         uint256 lpBalance = OsitoPair(pair).balanceOf(address(this));
-        uint256 principal = principalLp[pair];
         
-        if (lpBalance <= principal) return; // No fees to collect
+        if (lpBalance <= principalLp) return; // No fees to collect
         
         // Only collect excess LP above principal
-        uint256 feeLp = lpBalance - principal;
+        uint256 feeLp = lpBalance - principalLp;
         OsitoPair(pair).transfer(pair, feeLp);
         (uint256 amt0, uint256 amt1) = OsitoPair(pair).burn(address(this));
         
@@ -66,6 +67,6 @@ contract FeeRouter is ReentrancyGuard {
             qtToken.safeTransfer(treasury, qtAmount);
         }
         
-        emit FeesCollected(pair, tokAmount, qtAmount);
+        emit FeesCollected(tokAmount, qtAmount);
     }
 }
