@@ -6,34 +6,41 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 
-import {PMinLib} from "../libraries/PMinLib.sol";
 import {OsitoPair} from "./OsitoPair.sol";
 import {LenderVault} from "./LenderVault.sol";
 
-/// @notice Compound V2 BorrowSnapshot pattern + pMin liquidations
-/// @dev EXACT Compound implementation with pMin price oracle + P0 FIXES APPLIED
+/// @notice Options protocol: borrow = write PUT at pMin strike
+/// @dev Minimal Compound V2 BorrowSnapshot + UniV2 recovery
 contract CollateralVault is ReentrancyGuard {
     using SafeTransferLib for address;
     using FixedPointMathLib for uint256;
 
-    // EXACT Compound V2 BorrowSnapshot pattern
+    // Compound V2 BorrowSnapshot pattern
     struct BorrowSnapshot {
         uint256 principal;
         uint256 interestIndex;
     }
     
+    struct OTMPosition {
+        uint256 markTime;  // When position went OTM
+        bool isOTM;
+    }
+    
     mapping(address => uint256) public collateralBalances;
     mapping(address => BorrowSnapshot) public accountBorrows;
+    mapping(address => OTMPosition) public otmPositions;
     
     address public immutable collateralToken;
     address public immutable pair;
     address public immutable lenderVault;
     
-    uint256 public constant COLLATERAL_FACTOR = 8000; // 80%
-    uint256 public constant LIQUIDATION_INCENTIVE = 10500; // 5% bonus
-    uint256 public constant CLOSE_FACTOR = 5000; // 50% max liquidation
+    uint256 public constant GRACE_PERIOD = 72 hours;
+    uint256 public constant RECOVERY_BONUS_BPS = 100; // 1% bonus for caller
     
-    event Liquidate(address indexed liquidator, address indexed borrower, uint256 repayAmount, uint256 collateralSeized);
+    event PositionOpened(address indexed account, uint256 collateral, uint256 debt);
+    event PositionClosed(address indexed account, uint256 repaid);
+    event MarkedOTM(address indexed account, uint256 markTime);
+    event Recovered(address indexed account, uint256 collateralSwapped, uint256 debtRepaid, uint256 bonus);
     
     constructor(address _collateralToken, address _pair, address _lenderVault) {
         collateralToken = _collateralToken;
@@ -41,170 +48,220 @@ contract CollateralVault is ReentrancyGuard {
         lenderVault = _lenderVault;
     }
     
+    /// @notice Deposit collateral
     function depositCollateral(uint256 amount) external nonReentrant {
-        // P0 FIX: Add _accrue() hook
         LenderVault(lenderVault).accrueInterest();
         
         collateralToken.safeTransferFrom(msg.sender, address(this), amount);
         collateralBalances[msg.sender] += amount;
     }
     
+    /// @notice Withdraw collateral (if no debt)
     function withdrawCollateral(uint256 amount) external nonReentrant {
-        // P0 FIX: Add _accrue() hook
         LenderVault(lenderVault).accrueInterest();
         
+        require(accountBorrows[msg.sender].principal == 0, "OUTSTANDING_DEBT");
+        require(collateralBalances[msg.sender] >= amount, "INSUFFICIENT_COLLATERAL");
+        
         collateralBalances[msg.sender] -= amount;
-        require(_isAccountHealthy(msg.sender), "INSUFFICIENT_COLLATERAL");
         collateralToken.safeTransfer(msg.sender, amount);
     }
     
+    /// @notice Borrow = write PUT option at pMin strike
     function borrow(uint256 amount) external nonReentrant {
-        // P0 FIX: Add _accrue() hook
         LenderVault(lenderVault).accrueInterest();
+        
+        // Calculate max borrowable at pMin valuation
+        uint256 pMin = OsitoPair(pair).pMin();
+        uint256 maxBorrow = collateralBalances[msg.sender].mulDiv(pMin, 1e18);
         
         BorrowSnapshot memory snapshot = accountBorrows[msg.sender];
         uint256 lenderIndex = LenderVault(lenderVault).borrowIndex();
         
-        // EXACT Compound pattern: handle first borrow case
+        // Get current debt with interest
         uint256 currentDebt = snapshot.interestIndex == 0 
             ? snapshot.principal 
             : snapshot.principal.mulDiv(lenderIndex, snapshot.interestIndex);
         
-        require(_canBorrow(msg.sender, amount), "INSUFFICIENT_COLLATERAL");
+        require(currentDebt + amount <= maxBorrow, "EXCEEDS_PMIN_VALUE");
         
+        // Update borrow snapshot
         accountBorrows[msg.sender] = BorrowSnapshot({
             principal: currentDebt + amount,
             interestIndex: lenderIndex
         });
         
+        // Clear any OTM marking since position changed
+        delete otmPositions[msg.sender];
+        
         LenderVault(lenderVault).borrow(amount);
         ERC20(LenderVault(lenderVault).asset()).transfer(msg.sender, amount);
+        
+        emit PositionOpened(msg.sender, collateralBalances[msg.sender], currentDebt + amount);
     }
     
+    /// @notice Repay debt and reclaim collateral
     function repay(uint256 amount) external nonReentrant {
-        // P0 FIX: Add _accrue() hook
         LenderVault(lenderVault).accrueInterest();
         
         BorrowSnapshot memory snapshot = accountBorrows[msg.sender];
         uint256 lenderIndex = LenderVault(lenderVault).borrowIndex();
         
-        // EXACT Compound pattern: handle first borrow case
         uint256 currentDebt = snapshot.interestIndex == 0 
             ? snapshot.principal 
             : snapshot.principal.mulDiv(lenderIndex, snapshot.interestIndex);
+        
         uint256 repayAmount = amount > currentDebt ? currentDebt : amount;
         
         ERC20(LenderVault(lenderVault).asset()).transferFrom(msg.sender, address(this), repayAmount);
         
-        accountBorrows[msg.sender] = BorrowSnapshot({
-            principal: currentDebt - repayAmount,
-            interestIndex: lenderIndex
-        });
+        // Update or clear borrow
+        if (repayAmount == currentDebt) {
+            delete accountBorrows[msg.sender];
+            delete otmPositions[msg.sender];
+        } else {
+            accountBorrows[msg.sender] = BorrowSnapshot({
+                principal: currentDebt - repayAmount,
+                interestIndex: lenderIndex
+            });
+        }
         
         LenderVault(lenderVault).repay(repayAmount);
+        
+        emit PositionClosed(msg.sender, repayAmount);
     }
     
-    // Liquidation with P0 FIX: min(spot, pMin) oracle
-    function liquidate(address borrower, uint256 repayAmount) external nonReentrant {
-        require(!_isAccountHealthy(borrower), "ACCOUNT_HEALTHY");
+    /// @notice Mark position as OTM to start grace period
+    function markOTM(address account) external {
+        require(!isPositionHealthy(account), "POSITION_HEALTHY");
+        require(!otmPositions[account].isOTM, "ALREADY_MARKED");
         
-        // P0 FIX: Add _accrue() hook
+        otmPositions[account] = OTMPosition({
+            markTime: block.timestamp,
+            isOTM: true
+        });
+        
+        emit MarkedOTM(account, block.timestamp);
+    }
+    
+    /// @notice Recover OTM position after grace period
+    function recover(address account) external nonReentrant {
         LenderVault(lenderVault).accrueInterest();
         
-        BorrowSnapshot memory snapshot = accountBorrows[borrower];
+        OTMPosition memory otm = otmPositions[account];
+        require(otm.isOTM, "NOT_MARKED_OTM");
+        require(block.timestamp >= otm.markTime + GRACE_PERIOD, "GRACE_PERIOD_ACTIVE");
+        
+        BorrowSnapshot memory snapshot = accountBorrows[account];
         uint256 lenderIndex = LenderVault(lenderVault).borrowIndex();
         
-        // EXACT Compound pattern: handle first borrow case
-        uint256 currentDebt = snapshot.interestIndex == 0 
+        uint256 debt = snapshot.interestIndex == 0 
             ? snapshot.principal 
             : snapshot.principal.mulDiv(lenderIndex, snapshot.interestIndex);
         
-        uint256 maxRepay = currentDebt.mulDiv(CLOSE_FACTOR, 10000);
-        repayAmount = repayAmount > maxRepay ? maxRepay : repayAmount;
+        uint256 collateral = collateralBalances[account];
+        require(collateral > 0 && debt > 0, "INVALID_POSITION");
         
-        // P0 FIX: Use max(spot, pMin) for liquidation oracle
-        uint256 pMin = OsitoPair(pair).pMin();
-        uint256 spotPrice = _getSpotPrice();
-        uint256 liquidationPrice = pMin > spotPrice ? pMin : spotPrice;
+        // Clear position
+        delete accountBorrows[account];
+        delete collateralBalances[account];
+        delete otmPositions[account];
         
-        uint256 collateralSeized = repayAmount.mulDiv(LIQUIDATION_INCENTIVE, 10000).mulDiv(1e18, liquidationPrice);
+        // Swap collateral for QT in AMM
+        collateralToken.safeTransfer(pair, collateral);
         
-        require(collateralSeized <= collateralBalances[borrower], "INSUFFICIENT_COLLATERAL");
-        
-        ERC20(LenderVault(lenderVault).asset()).transferFrom(msg.sender, address(this), repayAmount);
-        
-        accountBorrows[borrower] = BorrowSnapshot({
-            principal: currentDebt - repayAmount,
-            interestIndex: lenderIndex
-        });
-        
-        collateralBalances[borrower] -= collateralSeized;
-        
-        LenderVault(lenderVault).repay(repayAmount);
-        collateralToken.safeTransfer(msg.sender, collateralSeized);
-        
-        emit Liquidate(msg.sender, borrower, repayAmount, collateralSeized);
-    }
-    
-    function _getSpotPrice() private view returns (uint256) {
+        // Calculate output using UniV2 formula
         (uint112 r0, uint112 r1,) = OsitoPair(pair).getReserves();
         bool tokIsToken0 = OsitoPair(pair).tokIsToken0();
-        uint256 rTok = tokIsToken0 ? uint256(r0) : uint256(r1);
-        uint256 rQt = tokIsToken0 ? uint256(r1) : uint256(r0);
         
-        if (rTok == 0) return 0;
-        return rQt.mulDiv(1e18, rTok);
+        uint256 tokReserve = tokIsToken0 ? uint256(r0) : uint256(r1);
+        uint256 qtReserve = tokIsToken0 ? uint256(r1) : uint256(r0);
+        
+        uint256 feeBps = OsitoPair(pair).currentFeeBps();
+        uint256 amountInWithFee = collateral.mulDiv(10000 - feeBps, 10000);
+        uint256 qtOut = (amountInWithFee * qtReserve) / (tokReserve + amountInWithFee);
+        
+        // Execute swap
+        if (tokIsToken0) {
+            OsitoPair(pair).swap(0, qtOut, address(this));
+        } else {
+            OsitoPair(pair).swap(qtOut, 0, address(this));
+        }
+        
+        // Repay debt
+        uint256 repayAmount = qtOut > debt ? debt : qtOut;
+        address qtToken = LenderVault(lenderVault).asset();
+        ERC20(qtToken).approve(lenderVault, repayAmount);
+        LenderVault(lenderVault).repay(repayAmount);
+        
+        // Calculate and send caller bonus
+        uint256 bonus = 0;
+        if (qtOut > debt) {
+            uint256 excess = qtOut - debt;
+            bonus = excess.mulDiv(RECOVERY_BONUS_BPS, 10000);
+            if (bonus > 0) {
+                qtToken.safeTransfer(msg.sender, bonus);
+            }
+            
+            // Remaining goes to lenders
+            uint256 lenderProfit = excess - bonus;
+            if (lenderProfit > 0) {
+                qtToken.safeTransfer(lenderVault, lenderProfit);
+            }
+        }
+        
+        emit Recovered(account, collateral, repayAmount, bonus);
     }
     
-    function _isAccountHealthy(address account) private view returns (bool) {
+    /// @notice Check if position is healthy (ITM)
+    function isPositionHealthy(address account) public view returns (bool) {
         BorrowSnapshot memory snapshot = accountBorrows[account];
         if (snapshot.principal == 0) return true;
         
         uint256 lenderIndex = LenderVault(lenderVault).borrowIndex();
-        
-        // EXACT Compound pattern: handle first borrow case
-        uint256 currentDebt = snapshot.interestIndex == 0 
+        uint256 debt = snapshot.interestIndex == 0 
             ? snapshot.principal 
             : snapshot.principal.mulDiv(lenderIndex, snapshot.interestIndex);
         
-        // Use max(pMin, spot) to match liquidation oracle
-        uint256 pMin = OsitoPair(pair).pMin();
-        uint256 spotPrice = _getSpotPrice();
-        uint256 price = pMin > spotPrice ? pMin : spotPrice;
-        uint256 collateralValue = collateralBalances[account].mulDiv(price, 1e18);
-        uint256 borrowPower = collateralValue.mulDiv(COLLATERAL_FACTOR, 10000);
+        // Get spot price from AMM
+        (uint112 r0, uint112 r1,) = OsitoPair(pair).getReserves();
+        bool tokIsToken0 = OsitoPair(pair).tokIsToken0();
         
-        return currentDebt <= borrowPower;
+        uint256 tokReserve = tokIsToken0 ? uint256(r0) : uint256(r1);
+        uint256 qtReserve = tokIsToken0 ? uint256(r1) : uint256(r0);
+        
+        if (tokReserve == 0) return false;
+        uint256 spotPrice = qtReserve.mulDiv(1e18, tokReserve);
+        
+        uint256 collateralValue = collateralBalances[account].mulDiv(spotPrice, 1e18);
+        
+        // Healthy if collateral spot value > debt
+        return collateralValue > debt;
     }
     
-    function _canBorrow(address account, uint256 additionalDebt) private view returns (bool) {
-        BorrowSnapshot memory snapshot = accountBorrows[account];
-        uint256 lenderIndex = LenderVault(lenderVault).borrowIndex();
-        
-        // EXACT Compound pattern: handle first borrow case
-        uint256 currentDebt = snapshot.interestIndex == 0 
-            ? snapshot.principal 
-            : snapshot.principal.mulDiv(lenderIndex, snapshot.interestIndex);
-        
-        // Use min(pMin, spot) for conservative borrowing valuation
-        uint256 pMin = OsitoPair(pair).pMin();
-        uint256 spotPrice = _getSpotPrice();
-        uint256 price = pMin < spotPrice ? pMin : spotPrice;
-        uint256 collateralValue = collateralBalances[account].mulDiv(price, 1e18);
-        uint256 borrowPower = collateralValue.mulDiv(COLLATERAL_FACTOR, 10000);
-        
-        return (currentDebt + additionalDebt) <= borrowPower;
-    }
-    
-    function getAccountHealth(address account) external view returns (uint256 collateral, uint256 debt, bool healthy) {
-        BorrowSnapshot memory snapshot = accountBorrows[account];
-        uint256 lenderIndex = LenderVault(lenderVault).borrowIndex();
+    /// @notice Get account state
+    function getAccountState(address account) external view returns (
+        uint256 collateral,
+        uint256 debt,
+        bool isHealthy,
+        bool isOTM,
+        uint256 timeUntilRecoverable
+    ) {
         collateral = collateralBalances[account];
         
-        // EXACT Compound pattern: handle first borrow case
+        BorrowSnapshot memory snapshot = accountBorrows[account];
+        uint256 lenderIndex = LenderVault(lenderVault).borrowIndex();
         debt = snapshot.interestIndex == 0 
             ? snapshot.principal 
             : snapshot.principal.mulDiv(lenderIndex, snapshot.interestIndex);
-        healthy = _isAccountHealthy(account);
+        
+        isHealthy = isPositionHealthy(account);
+        
+        OTMPosition memory otm = otmPositions[account];
+        isOTM = otm.isOTM;
+        
+        if (isOTM && block.timestamp < otm.markTime + GRACE_PERIOD) {
+            timeUntilRecoverable = (otm.markTime + GRACE_PERIOD) - block.timestamp;
+        }
     }
 }
