@@ -49,9 +49,9 @@ contract MutationTests is BaseTest {
         
         uint256[] memory expectedFees = new uint256[](5);
         expectedFees[0] = 9900;
-        expectedFees[1] = 7492; // 9900 - (9870 * 0.25)
-        expectedFees[2] = 4965; // 9900 - (9870 * 0.5)
-        expectedFees[3] = 2497; // 9900 - (9870 * 0.75)
+        expectedFees[1] = 7433; // 9900 - (9870 * 0.25) = 9900 - 2467.5
+        expectedFees[2] = 4965; // 9900 - (9870 * 0.5) = 9900 - 4935
+        expectedFees[3] = 2498; // 9900 - (9870 * 0.75) = 9900 - 7402.5
         expectedFees[4] = 30;
         
         for (uint i = 0; i < burnAmounts.length; i++) {
