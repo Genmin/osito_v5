@@ -194,6 +194,12 @@ contract CollateralVault is ReentrancyGuard {
         ERC20(qtToken).approve(lenderVault, repayAmount);
         LenderVault(lenderVault).repay(repayAmount);
         
+        // Absorb any loss (principal is always safe, only interest at risk)
+        uint256 loss = debt > repayAmount ? debt - repayAmount : 0;
+        if (loss != 0) {
+            LenderVault(lenderVault).absorbLoss(loss);
+        }
+        
         // Calculate and send caller bonus
         uint256 bonus = 0;
         if (qtOut > debt) {

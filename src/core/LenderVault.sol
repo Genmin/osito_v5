@@ -76,6 +76,12 @@ contract LenderVault is ERC4626 {
         totalBorrows -= repayAmount;
     }
     
+    /// @notice Absorb loss when recovery doesn't cover full debt
+    /// @dev Only called by CollateralVault when Qₜ < Q₀ + Qᵢ
+    function absorbLoss(uint256 loss) external onlyAuthorized {
+        totalBorrows -= loss;
+    }
+    
     function borrowRate() external view returns (uint256) {
         uint256 totalSupply = totalAssets();
         if (totalSupply == 0) return BASE_RATE;
