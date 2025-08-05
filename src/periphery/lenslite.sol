@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "../factories/OsitoLaunchpad.sol";
-import "../factories/LendingFactory.sol";
 import "../core/OsitoPair.sol";
 import "../core/LenderVault.sol";
 import "../core/CollateralVault.sol";
@@ -148,13 +146,29 @@ contract LensLite {
             bool canWithdraw
         ) 
     {
-        // TODO: Implement when CollateralVault addresses are tracked
-        return (0, 0, 0, false, false);
+        if (collateralVault == address(0)) {
+            return (0, 0, 0, false, false);
+        }
+        
+        // Get actual data from CollateralVault
+        CollateralVault vault = CollateralVault(collateralVault);
+        bool isHealthy;
+        (collateral, debt, isHealthy, , ) = vault.getAccountState(user);
+        
+        // Calculate borrowing power based on pMin
+        address pair = vault.pair();
+        uint256 pMin = OsitoPair(pair).pMin();
+        borrowingPower = (collateral * pMin) / 1e18;
+        
+        canBorrow = isHealthy && (debt < borrowingPower);
+        canWithdraw = debt == 0;
+        
+        return (collateral, debt, borrowingPower, canBorrow, canWithdraw);
     }
 
     /**
      * @notice Get lending market data
-     * @dev Placeholder for when lending is integrated
+     * @dev Returns data for a specific token's lending market
      */
     function getLendingMarket(address token)
         external
@@ -169,7 +183,8 @@ contract LensLite {
             uint256 borrowAPY
         )
     {
-        // TODO: Implement when lending markets are tracked
+        // TODO: Need a registry to track lending markets
+        // For now, return empty data
         return (address(0), address(0), 0, 0, 0, 0, 0);
     }
 }

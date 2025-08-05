@@ -1,0 +1,14 @@
+{
+  "chainId": 80069,
+  "contracts": {
+    "OsitoLaunchpad": "0x7E3fcAC742EAC70e6E2aDad2B7373b7fE569A9b5",
+    "LendingFactory": "0xedA30de4628955f3759eE7829d4124D6239F28ba",
+    "LensLite": "0x993F97eF95633A47412C9E837a0E2B4274D05de7",
+    "SwapRouter": "0xb6B1d11A98Cd3a522AA1e02395381c880FdE9047",
+    "WBERA": "0x6969696969696969696969696969696969696969",
+    "Treasury": "0xBfff8b5C308CBb00a114EF2651f9EC7819b69557"
+  },
+  "deploymentBlock": 7745261,
+  "verified": true,
+  "bytecodeTested": true
+}
