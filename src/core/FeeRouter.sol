@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {ERC20} from "solady/tokens/ERC20.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 
 import {OsitoPair} from "./OsitoPair.sol";
@@ -12,6 +13,7 @@ import {OsitoToken} from "./OsitoToken.sol";
 /// @dev NO Ownable - fully permissionless, ONE per pair
 contract FeeRouter is ReentrancyGuard {
     using SafeTransferLib for address;
+    using FixedPointMathLib for uint256;
     
     address public immutable treasury;
     address public immutable factory;
@@ -53,19 +55,20 @@ contract FeeRouter is ReentrancyGuard {
         if (storedK == 0 || currentK <= storedK) return;   // nothing to crystallise
 
         // ------------------------------------------------------------------- //
-        // 2. Calculate EXACT minimum LP to satisfy burn requirements          //
-        //    Must ensure: liquidity * balance / totalSupply > 0 for BOTH tokens //
+        // 2. Calculate provably minimal sacrifice accounting for _mintFee()   //
+        //    _mintFee() can increase totalSupply by up to 20% (worst case)    //
         // ------------------------------------------------------------------- //
-        uint256 totalSupply = pair_.totalSupply();
+        uint256 S = pair_.totalSupply();  // pre-mint supply
         uint256 bal0 = ERC20(pair_.token0()).balanceOf(address(pair_));
         uint256 bal1 = ERC20(pair_.token1()).balanceOf(address(pair_));
+        uint256 m = bal0 < bal1 ? bal0 : bal1;  // min balance
         
-        // UniV2 burn requires: amt = (L * B) / S > 0 for both tokens
-        // With integer division rounding down, this means: L * B >= S + 1
-        // Therefore: L > S / min(B0, B1)
-        // Using floor division + 1 ensures strict inequality
-        uint256 minBalance = bal0 < bal1 ? bal0 : bal1;
-        uint256 sacrificeAmount = (totalSupply / minBalance) + 1;
+        // Account for worst-case fee mint: S_after < 6S/5
+        // Therefore: L > (6S/5)/m = 6S/5m
+        // Using Solady's mulDivUp for ceiling division
+        uint256 sacrificeAmount = S.mulDivUp(6, 5)  // 6S/5 (rounded up)
+                                   .divUp(m)         // divide by m (rounded up)
+                                   + 1;              // ensure strict inequality
         
         require(pair_.balanceOf(address(this)) >= sacrificeAmount, "ROUTER_HAS_NO_LP");
         pair_.transfer(pair, sacrificeAmount);
