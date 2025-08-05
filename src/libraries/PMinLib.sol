@@ -6,7 +6,7 @@ import {Constants}        from "./Constants.sol";
 
 /// @notice EXACT pMin formula for maximum borrowing efficiency
 /// @dev Implements: pMin = K / xFinal² × (1 - bounty)
-library PMinLibExact {
+library PMinLib {
     using FixedPointMathLib for uint256;
 
     /// @notice Calculate pMin using the EXACT formula for maximum efficiency
@@ -38,6 +38,9 @@ library PMinLibExact {
         uint256 effectiveSwapAmount = FixedPointMathLib.mulDiv(tokToSwap, 
             Constants.BASIS_POINTS - feeBps, Constants.BASIS_POINTS);
         uint256 xFinal = tokReserves + effectiveSwapAmount;
+        
+        // Check for overflow in k calculation
+        if (k / tokReserves != qtReserves) return 0; // Overflow detected
         
         // EXACT formula: k / xFinal²
         // Calculate as: (k / xFinal) / xFinal to avoid overflow
