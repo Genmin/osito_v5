@@ -181,6 +181,9 @@ contract CollateralVault is ReentrancyGuard {
         uint256 amountInWithFee = collateral.mulDiv(10000 - feeBps, 10000);
         uint256 qtOut = (amountInWithFee * qtReserve) / (tokReserve + amountInWithFee);
         
+        // Prevent gas grief: ensure swap will succeed
+        require(qtOut > 0, "DUST_POSITION");
+        
         // Execute swap
         if (tokIsToken0) {
             OsitoPair(pair).swap(0, qtOut, address(this));

@@ -17,6 +17,19 @@ contract OsitoPair is ERC20, ReentrancyGuard {
     using FixedPointMathLib for uint256;
     using SafeCastLib for uint256;
     
+    // UniswapV2 Events - REQUIRED for ecosystem compatibility
+    event Mint(address indexed sender, uint amount0, uint amount1);
+    event Burn(address indexed sender, uint amount0, uint amount1, address indexed to);
+    event Swap(
+        address indexed sender,
+        uint amount0In,
+        uint amount1In,
+        uint amount0Out,
+        uint amount1Out,
+        address indexed to
+    );
+    event Sync(uint112 reserve0, uint112 reserve1);
+    
     function name() public pure override returns (string memory) {
         return "Osito LP";
     }
@@ -97,6 +110,7 @@ contract OsitoPair is ERC20, ReentrancyGuard {
             balance1.toUint112(),
             uint32(block.timestamp)
         );
+        emit Sync(reserves.r0, reserves.r1);
     }
 
     // EXACT UniV2 fee collection mechanism
@@ -156,6 +170,7 @@ contract OsitoPair is ERC20, ReentrancyGuard {
         _update(bal0, bal1);
         
         if (feeOn) kLast = uint256(reserves.r0) * uint256(reserves.r1);
+        emit Mint(msg.sender, amt0, amt1);
     }
 
     function burn(address to) external nonReentrant returns (uint256 amt0, uint256 amt1) {
@@ -180,6 +195,7 @@ contract OsitoPair is ERC20, ReentrancyGuard {
         _update(bal0, bal1);
         
         if (feeOn) kLast = uint256(reserves.r0) * uint256(reserves.r1);
+        emit Burn(msg.sender, amt0, amt1, to);
     }
 
     function swap(uint256 a0Out, uint256 a1Out, address to) external nonReentrant {
@@ -205,12 +221,19 @@ contract OsitoPair is ERC20, ReentrancyGuard {
         require(bal0Adj * bal1Adj >= uint256(R.r0) * uint256(R.r1) * (10000**2), "K");
 
         _update(bal0, bal1);
+        emit Swap(msg.sender, a0In, a1In, a0Out, a1Out, to);
     }
 
     // ONLY restriction: LP tokens can only go to feeRouter or pair itself
     function transfer(address to, uint256 amount) public override returns (bool) {
         require(to == feeRouter || to == address(this), "RESTRICTED");
         return super.transfer(to, amount);
+    }
+    
+    // Override transferFrom to prevent LP token exile via approvals
+    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
+        require(to == feeRouter || to == address(this), "RESTRICTED");
+        return super.transferFrom(from, to, amount);
     }
 
     function currentFeeBps() public view returns (uint256) {
@@ -235,7 +258,9 @@ contract OsitoPair is ERC20, ReentrancyGuard {
         
         return PMinLib.calculate(rTok, rQt, supply, currentFeeBps());
     }
-
+    // CRITICAL: sync() and skim() are INTENTIONALLY OMITTED to prevent donation attacks
+    // The protocol maintains its "closed-liquidity" property by disabling these functions
+    
     function min(uint256 a, uint256 b) private pure returns (uint256) {
         return a < b ? a : b;
     }

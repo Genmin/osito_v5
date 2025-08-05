@@ -18,59 +18,64 @@ contract FeeRouter is ReentrancyGuard {
     address public immutable treasury;
     address public immutable factory;
     address public pair;
-    uint256 public principalLp;
+    uint256 public principalLp;  // Track principal LP separately from fees
     
     event FeesCollected(uint256 tokBurned, uint256 qtCollected);
-    event PrincipalLpSet(uint256 amount);
+    event Initialized(address pair, uint256 reserve0, uint256 reserve1);
     
     constructor(address _treasury) {
         treasury = _treasury;
         factory = msg.sender;
     }
 
-    /// @notice Set principal LP (called once after initial mint)
+    /// @notice Initialize with pair address and principal LP amount
     function setPrincipalLp(address _pair) external {
         require(msg.sender == factory, "ONLY_FACTORY");
         require(pair == address(0), "ALREADY_SET");
         pair = _pair;
+        
+        // Store the initial LP balance as principal - this should never be burned
         principalLp = OsitoPair(_pair).balanceOf(address(this));
-        emit PrincipalLpSet(principalLp);
+        
+        emit Initialized(_pair, principalLp, 0);
     }
     
-    /// @notice Collect fees with reentrancy protection and LP floor
-    /// @dev Anyone can call - permissionless fee collection
+    /// @notice Collect fees using canonical UniV2 fee-on pattern
+    /// @dev Anyone can call - only burns fee LP, never principal
     function collectFees() external nonReentrant {
-        uint256 lpBalance = OsitoPair(pair).balanceOf(address(this));
+        OsitoPair p = OsitoPair(pair);
         
-        if (lpBalance <= principalLp) return; // No fees to collect
-        
-        // Calculate excess LP (accumulated fees)
-        uint256 excessLp = lpBalance - principalLp;
-        
-        // 90% of fees extracted, 10% stays in pool
-        uint256 feeLp = excessLp * 9000 / 10000;
-        
-        OsitoPair(pair).transfer(pair, feeLp);
-        (uint256 amt0, uint256 amt1) = OsitoPair(pair).burn(address(this));
-        
-        bool tokIsToken0 = OsitoPair(pair).tokIsToken0();
-        address tokToken = tokIsToken0 ? OsitoPair(pair).token0() : OsitoPair(pair).token1();
-        address qtToken = tokIsToken0 ? OsitoPair(pair).token1() : OsitoPair(pair).token0();
-        
-        uint256 tokAmount = tokIsToken0 ? amt0 : amt1;
-        uint256 qtAmount = tokIsToken0 ? amt1 : amt0;
-        
-        // CRITICAL: Burn TOK tokens to reduce supply S (increases pMin)
-        if (tokAmount > 0) {
-            OsitoToken(tokToken).burn(tokAmount);
+        // 1. Trigger _mintFee() with sacrificial 1 wei burn
+        if (p.kLast() != 0) {
+            uint256 lpBalance = p.balanceOf(address(this));
+            require(lpBalance > principalLp, "NO_LP_TO_SACRIFICE");
+            p.transfer(pair, 1);
+            p.burn(address(this));  // Direct call - will revert if burn fails
         }
         
-        // QT (WETH) doesn't have burn - send to treasury
-        // SUBTRACTION: Don't return QT to pair - this would shrink k
-        if (qtAmount > 0) {
-            qtToken.safeTransfer(treasury, qtAmount);
+        // 2. Compute EXCESS LP over principal
+        uint256 lpBal = p.balanceOf(address(this));
+        if (lpBal <= principalLp) return;  // No fees to collect
+        uint256 feeLp = lpBal - principalLp;
+        
+        // 3. Burn ONLY the fee LP (never touch principal)
+        p.transfer(pair, feeLp);
+        (uint256 a0, uint256 a1) = p.burn(address(this));
+        
+        // 4. Split outputs: 100% TOK burned, 100% QT to treasury
+        bool is0Tok = p.tokIsToken0();
+        (uint256 tokAmt, uint256 qtAmt) = is0Tok ? (a0, a1) : (a1, a0);
+        
+        // Burn all TOK received from fees
+        if (tokAmt > 0) {
+            OsitoToken(is0Tok ? p.token0() : p.token1()).burn(tokAmt);
         }
         
-        emit FeesCollected(tokAmount, qtAmount);
+        // Send all QT to treasury
+        if (qtAmt > 0) {
+            (is0Tok ? p.token1() : p.token0()).safeTransfer(treasury, qtAmt);
+        }
+        
+        emit FeesCollected(tokAmt, qtAmt);
     }
 }
