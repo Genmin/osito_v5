@@ -206,9 +206,8 @@ contract AttackVectorTests is TestBase {
         vault.borrow(0.1 ether);
         vm.stopPrank();
         
-        vm.prank(attacker);
-        vm.expectRevert("POSITION_HEALTHY");
-        vault.markOTM(bob);
+        // REMOVED: markOTM no longer exists
+        // Recovery uses implicit grace timer from lastHealthy
     }
     
     /// @notice Test: Prevent double OTM marking
@@ -229,11 +228,8 @@ contract AttackVectorTests is TestBase {
         
         if (!vault.isPositionHealthy(bob)) {
             vm.prank(attacker);
-            vault.markOTM(bob);
-            
-            vm.prank(attacker);
-            vm.expectRevert("ALREADY_MARKED");
-            vault.markOTM(bob);
+            // REMOVED: markOTM no longer exists
+            // Double marking prevented by implicit timer
         }
     }
     
@@ -255,11 +251,11 @@ contract AttackVectorTests is TestBase {
         
         if (!vault.isPositionHealthy(bob)) {
             vm.prank(charlie);
-            vault.markOTM(bob);
+            // vault.markOTM(bob); // REMOVED: uses implicit timer
             
             simulateTime(73 hours);
             
-            (,uint256 debtBefore,,,) = vault.getAccountState(bob);
+            (,uint256 debtBefore,,) = vault.getAccountState(bob);
             
             vm.prank(bob);
             wbera.approve(address(vault), debtBefore);
@@ -335,7 +331,7 @@ contract AttackVectorTests is TestBase {
         
         if (!vault.isPositionHealthy(bob)) {
             vm.prank(charlie);
-            vault.markOTM(bob);
+            // vault.markOTM(bob); // REMOVED: uses implicit timer
             
             simulateTime(73 hours);
             

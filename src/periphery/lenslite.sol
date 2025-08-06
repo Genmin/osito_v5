@@ -159,7 +159,7 @@ contract LensLite {
         // Get actual data from CollateralVault
         CollateralVault vault = CollateralVault(collateralVault);
         bool isHealthy;
-        (collateral, debt, isHealthy, , ) = vault.getAccountState(user);
+        (collateral, debt, isHealthy, ) = vault.getAccountState(user);
         
         // Calculate borrowing power based on pMin
         address pair = vault.pair();

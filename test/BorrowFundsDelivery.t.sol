@@ -115,7 +115,7 @@ contract BorrowFundsDeliveryTest is Test {
         assertEq(qtToken.balanceOf(borrower), 0, "QT should be repaid");
         
         // Debt should be cleared
-        (uint256 principal, ) = vault.accountBorrows(borrower);
+        (uint256 principal, , ) = vault.accountBorrows(borrower);
         assertEq(principal, 0, "Debt should be cleared");
         
         vm.stopPrank();

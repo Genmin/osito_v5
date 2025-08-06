@@ -15,20 +15,15 @@ contract CollateralVault is ReentrancyGuard {
     using SafeTransferLib for address;
     using FixedPointMathLib for uint256;
 
-    // Compound V2 BorrowSnapshot pattern
+    // Compound V2 BorrowSnapshot pattern + implicit grace timer
     struct BorrowSnapshot {
         uint256 principal;
         uint256 interestIndex;
-    }
-    
-    struct OTMPosition {
-        uint256 markTime;  // When position went OTM
-        bool isOTM;
+        uint256 lastHealthy;  // Timestamp when position last had S·C ≥ D
     }
     
     mapping(address => uint256) public collateralBalances;
     mapping(address => BorrowSnapshot) public accountBorrows;
-    mapping(address => OTMPosition) public otmPositions;
     
     address public immutable collateralToken;
     address public immutable pair;
@@ -39,7 +34,6 @@ contract CollateralVault is ReentrancyGuard {
     
     event PositionOpened(address indexed account, uint256 collateral, uint256 debt);
     event PositionClosed(address indexed account, uint256 repaid);
-    event MarkedOTM(address indexed account, uint256 markTime);
     event Recovered(address indexed account, uint256 collateralSwapped, uint256 debtRepaid, uint256 bonus);
     
     constructor(address _collateralToken, address _pair, address _lenderVault) {
@@ -55,8 +49,8 @@ contract CollateralVault is ReentrancyGuard {
         collateralToken.safeTransferFrom(msg.sender, address(this), amount);
         collateralBalances[msg.sender] += amount;
         
-        // Clear OTM flag if position has become healthy after deposit
-        _maybeClearOTM(msg.sender);
+        // Update lastHealthy if position is now healthy
+        _updateHealthStatus(msg.sender);
     }
     
     /// @notice Withdraw collateral (if no debt)
@@ -88,14 +82,12 @@ contract CollateralVault is ReentrancyGuard {
         
         require(currentDebt + amount <= maxBorrow, "EXCEEDS_PMIN_VALUE");
         
-        // Update borrow snapshot
+        // Update borrow snapshot with current health status
         accountBorrows[msg.sender] = BorrowSnapshot({
             principal: currentDebt + amount,
-            interestIndex: lenderIndex
+            interestIndex: lenderIndex,
+            lastHealthy: block.timestamp  // New borrow starts healthy by definition (D ≤ pMin·C)
         });
-        
-        // Clear any OTM marking since position changed
-        delete otmPositions[msg.sender];
         
         // Borrow from LenderVault (sends QT to this contract)
         LenderVault(lenderVault).borrow(amount);
@@ -125,14 +117,12 @@ contract CollateralVault is ReentrancyGuard {
         // Update or clear borrow
         if (repayAmount == currentDebt) {
             delete accountBorrows[msg.sender];
-            delete otmPositions[msg.sender];
         } else {
             accountBorrows[msg.sender] = BorrowSnapshot({
                 principal: currentDebt - repayAmount,
-                interestIndex: lenderIndex
+                interestIndex: lenderIndex,
+                lastHealthy: isPositionHealthy(msg.sender) ? block.timestamp : snapshot.lastHealthy
             });
-            // Clear OTM flag if partial repayment made position healthy
-            _maybeClearOTM(msg.sender);
         }
         
         ERC20(LenderVault(lenderVault).asset()).approve(lenderVault, repayAmount);
@@ -141,41 +131,23 @@ contract CollateralVault is ReentrancyGuard {
         emit PositionClosed(msg.sender, repayAmount);
     }
     
-    /// @notice Clear OTM flag if position has become healthy
-    function _maybeClearOTM(address account) internal {
-        if (otmPositions[account].isOTM && isPositionHealthy(account)) {
-            delete otmPositions[account];
+    /// @notice Update lastHealthy timestamp if position is healthy
+    function _updateHealthStatus(address account) internal {
+        BorrowSnapshot memory snapshot = accountBorrows[account];
+        if (snapshot.principal > 0 && isPositionHealthy(account)) {
+            accountBorrows[account].lastHealthy = block.timestamp;
         }
-    }
-    
-    /// @notice Mark position as OTM to start grace period
-    function markOTM(address account) external {
-        // First check if position was previously marked but is now healthy
-        _maybeClearOTM(account);
-        
-        require(!isPositionHealthy(account), "POSITION_HEALTHY");
-        require(!otmPositions[account].isOTM, "ALREADY_MARKED");
-        
-        otmPositions[account] = OTMPosition({
-            markTime: block.timestamp,
-            isOTM: true
-        });
-        
-        emit MarkedOTM(account, block.timestamp);
     }
     
     /// @notice Recover OTM position after grace period
     function recover(address account) external nonReentrant {
         LenderVault(lenderVault).accrueInterest();
         
-        // Check if position has become healthy since marking
-        _maybeClearOTM(account);
-        
-        OTMPosition memory otm = otmPositions[account];
-        require(otm.isOTM, "NOT_MARKED_OTM");
-        require(block.timestamp >= otm.markTime + GRACE_PERIOD, "GRACE_PERIOD_ACTIVE");
-        
         BorrowSnapshot memory snapshot = accountBorrows[account];
+        
+        // Single grace period check: position must be unhealthy AND grace period expired
+        require(!isPositionHealthy(account), "POSITION_HEALTHY");
+        require(block.timestamp >= snapshot.lastHealthy + GRACE_PERIOD, "GRACE_NOT_EXPIRED");
         uint256 lenderIndex = LenderVault(lenderVault).borrowIndex();
         
         uint256 debt = snapshot.interestIndex == 0 
@@ -192,7 +164,6 @@ contract CollateralVault is ReentrancyGuard {
         // Clear position
         delete accountBorrows[account];
         delete collateralBalances[account];
-        delete otmPositions[account];
         
         // Transfer collateral to pair for swap
         collateralToken.safeTransfer(pair, collateral);
@@ -276,7 +247,6 @@ contract CollateralVault is ReentrancyGuard {
         uint256 collateral,
         uint256 debt,
         bool isHealthy,
-        bool isOTM,
         uint256 timeUntilRecoverable
     ) {
         collateral = collateralBalances[account];
@@ -289,11 +259,12 @@ contract CollateralVault is ReentrancyGuard {
         
         isHealthy = isPositionHealthy(account);
         
-        OTMPosition memory otm = otmPositions[account];
-        isOTM = otm.isOTM;
-        
-        if (isOTM && block.timestamp < otm.markTime + GRACE_PERIOD) {
-            timeUntilRecoverable = (otm.markTime + GRACE_PERIOD) - block.timestamp;
+        // Derive time until recoverable from lastHealthy timestamp
+        if (!isHealthy && snapshot.principal > 0) {
+            uint256 graceEnd = snapshot.lastHealthy + GRACE_PERIOD;
+            if (block.timestamp < graceEnd) {
+                timeUntilRecoverable = graceEnd - block.timestamp;
+            }
         }
     }
 }

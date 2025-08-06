@@ -148,7 +148,7 @@ contract FullSystemTest is Script {
             
             // Check position
             uint256 collateral = CollateralVault(vault).collateralBalances(deployer);
-            (uint256 principal,) = CollateralVault(vault).accountBorrows(deployer);
+            (uint256 principal,,) = CollateralVault(vault).accountBorrows(deployer);
             console.log("  Position - Collateral:", collateral, "Debt:", principal);
             
             // 7. TEST REPAYMENT
@@ -158,7 +158,7 @@ contract FullSystemTest is Script {
             console.log("  Repaid half debt");
             
             collateral = CollateralVault(vault).collateralBalances(deployer);
-            (principal,) = CollateralVault(vault).accountBorrows(deployer);
+            (principal,,) = CollateralVault(vault).accountBorrows(deployer);
             console.log("  Position after - Collateral:", collateral, "Debt:", principal);
         }
         
