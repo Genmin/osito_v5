@@ -12,9 +12,6 @@ contract OsitoToken is ERC20 {
     // Supply cap to prevent uint112 overflow in AMM reserves
     uint256 public constant MAX_SUPPLY = 2**111; // Half of uint112 max for safety
     
-    // Mint lock - can never mint after constructor
-    bool public immutable mintLocked = true;
-    
     constructor(
         string memory name_,
         string memory symbol_,

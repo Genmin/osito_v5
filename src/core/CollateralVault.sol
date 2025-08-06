@@ -97,7 +97,12 @@ contract CollateralVault is ReentrancyGuard {
         // Clear any OTM marking since position changed
         delete otmPositions[msg.sender];
         
+        // Borrow from LenderVault (sends QT to this contract)
         LenderVault(lenderVault).borrow(amount);
+        
+        // CRITICAL: Forward the borrowed QT to the actual borrower
+        address qtToken = LenderVault(lenderVault).asset();
+        qtToken.safeTransfer(msg.sender, amount);
         
         emit PositionOpened(msg.sender, collateralBalances[msg.sender], currentDebt + amount);
     }
@@ -126,6 +131,8 @@ contract CollateralVault is ReentrancyGuard {
                 principal: currentDebt - repayAmount,
                 interestIndex: lenderIndex
             });
+            // Clear OTM flag if partial repayment made position healthy
+            _maybeClearOTM(msg.sender);
         }
         
         ERC20(LenderVault(lenderVault).asset()).approve(lenderVault, repayAmount);
@@ -178,17 +185,17 @@ contract CollateralVault is ReentrancyGuard {
         uint256 collateral = collateralBalances[account];
         require(collateral > 0 && debt > 0, "INVALID_POSITION");
         
+        // Snapshot reserves BEFORE transfer (prevents sandwich attacks)
+        (uint112 r0, uint112 r1,) = OsitoPair(pair).getReserves();
+        bool tokIsToken0 = OsitoPair(pair).tokIsToken0();
+        
         // Clear position
         delete accountBorrows[account];
         delete collateralBalances[account];
         delete otmPositions[account];
         
-        // Swap collateral for QT in AMM
+        // Transfer collateral to pair for swap
         collateralToken.safeTransfer(pair, collateral);
-        
-        // Calculate output using UniV2 formula
-        (uint112 r0, uint112 r1,) = OsitoPair(pair).getReserves();
-        bool tokIsToken0 = OsitoPair(pair).tokIsToken0();
         
         uint256 tokReserve = tokIsToken0 ? uint256(r0) : uint256(r1);
         uint256 qtReserve = tokIsToken0 ? uint256(r1) : uint256(r0);

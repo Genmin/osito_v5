@@ -117,8 +117,17 @@ contract ComprehensiveAttackTests is BaseTest {
         uint256 wethOnly = 50 ether;
         weth.transfer(address(pair), wethOnly);
         
-        // Try to mint LP tokens
-        vm.expectRevert(); // Should revert due to imbalanced liquidity
+        // Try to mint LP tokens - should fail due to RESTRICTED
+        vm.expectRevert("RESTRICTED");
+        pair.mint(attacker);
+        vm.stopPrank();
+        
+        // Even with balanced liquidity, regular users can't mint
+        vm.startPrank(attacker);
+        token.transfer(address(pair), 1000 * 1e18);
+        
+        // Still restricted
+        vm.expectRevert("RESTRICTED");
         pair.mint(attacker);
         vm.stopPrank();
         

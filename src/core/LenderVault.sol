@@ -5,10 +5,11 @@ import {ERC4626} from "solady/tokens/ERC4626.sol";
 import {ERC20} from "solady/tokens/ERC20.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 
 /// @notice ERC4626 vault with Compound-style lending
 /// @dev Standard vault + borrow/repay for CollateralVault
-contract LenderVault is ERC4626 {
+contract LenderVault is ERC4626, ReentrancyGuard {
     using SafeTransferLib for address;
     using FixedPointMathLib for uint256;
 
@@ -63,14 +64,14 @@ contract LenderVault is ERC4626 {
         _accrue();
     }
     
-    function borrow(uint256 amount) external onlyAuthorized {
+    function borrow(uint256 amount) external onlyAuthorized nonReentrant {
         _accrue();
         require(totalAssets() >= totalBorrows + amount, "INSUFFICIENT_LIQUIDITY");
         totalBorrows += amount;
         asset().safeTransfer(msg.sender, amount);
     }
     
-    function repay(uint256 amount) external onlyAuthorized {
+    function repay(uint256 amount) external onlyAuthorized nonReentrant {
         _accrue();
         uint256 repayAmount = amount > totalBorrows ? totalBorrows : amount;
         asset().safeTransferFrom(msg.sender, address(this), repayAmount);
