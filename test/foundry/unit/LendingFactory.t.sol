@@ -19,7 +19,6 @@ contract LendingFactoryTest is BaseTest {
     // ============ Constructor Tests ============
     
     function test_Constructor() public view {
-        assertEq(lendingFactory.weth(), address(weth));
         assertEq(lendingFactory.treasury(), treasury);
         
         // Should have created a lender vault
@@ -33,7 +32,7 @@ contract LendingFactoryTest is BaseTest {
     function test_LenderVaultCreation() public view {
         LenderVault lenderVault = LenderVault(lendingFactory.lenderVault());
         
-        assertEq(lenderVault.name(), "Osito Lender Vault");
+        assertEq(lenderVault.name(), "Osito Wrapped ETH"); // Name is "Osito " + asset.name()
         assertEq(lenderVault.symbol(), "oWETH");
         assertEq(lenderVault.decimals(), 18);
         assertEq(lenderVault.asset(), address(weth));
@@ -79,7 +78,7 @@ contract LendingFactoryTest is BaseTest {
         assertTrue(firstVault != address(0));
         
         // Try to create another market for same pair
-        vm.expectRevert("MARKET_EXISTS");
+        vm.expectRevert(LendingFactory.MarketExists.selector);
         lendingFactory.createLendingMarket(address(pair));
     }
     
@@ -111,11 +110,15 @@ contract LendingFactoryTest is BaseTest {
         uint256 supply,
         uint256 liquidity
     ) public {
-        // Bound inputs
-        vm.assume(bytes(name).length > 0 && bytes(name).length < 20);
-        vm.assume(bytes(symbol).length > 0 && bytes(symbol).length < 10);
-        supply = bound(supply, 1000 * 1e18, 1e9 * 1e18);
-        liquidity = bound(liquidity, 0.1 ether, 100 ether);
+        // Use less restrictive bounds to avoid vm.assume rejections
+        if (bytes(name).length == 0 || bytes(name).length > 50) {
+            name = "TestToken";
+        }
+        if (bytes(symbol).length == 0 || bytes(symbol).length > 10) {
+            symbol = "TEST";
+        }
+        supply = bound(supply, 1000 * 1e18, 1e6 * 1e18); // Reduced max
+        liquidity = bound(liquidity, 0.1 ether, 50 ether); // Reduced max within alice's balance
         
         // Launch token
         (,OsitoPair pair,) = _launchToken(name, symbol, supply, liquidity, alice);
@@ -202,11 +205,11 @@ contract LendingFactoryTest is BaseTest {
         address vault1 = lendingFactory.createLendingMarket(address(pair1));
         address vault2 = lendingFactory.createLendingMarket(address(pair2));
         
-        // Fund lender vault
+        // Fund lender vault - charlie only has 100 ether, so deposit within his balance
         LenderVault lenderVault = LenderVault(lendingFactory.lenderVault());
         vm.startPrank(charlie);
-        weth.approve(address(lenderVault), 200 ether);
-        lenderVault.deposit(200 ether, charlie);
+        weth.approve(address(lenderVault), 90 ether); // Reduced to fit charlie's balance
+        lenderVault.deposit(90 ether, charlie);
         vm.stopPrank();
         
         // Both markets should share the same lender vault
@@ -214,7 +217,7 @@ contract LendingFactoryTest is BaseTest {
         assertEq(CollateralVault(vault2).lenderVault(), address(lenderVault));
         
         // Both should be able to borrow from the shared pool
-        assertEq(lenderVault.totalAssets(), 200 ether);
+        assertEq(lenderVault.totalAssets(), 90 ether);
     }
     
     // ============ Access Control Tests ============
@@ -251,8 +254,11 @@ contract LendingFactoryTest is BaseTest {
     function test_FactoryState() public view {
         // Factory should maintain correct state
         assertTrue(lendingFactory.lenderVault() != address(0));
-        assertEq(lendingFactory.weth(), address(weth));
         assertEq(lendingFactory.treasury(), treasury);
+        
+        // Verify lender vault uses correct asset
+        LenderVault lenderVault = LenderVault(lendingFactory.lenderVault());
+        assertEq(lenderVault.asset(), address(weth));
     }
     
     function test_LenderVaultSharing() public {

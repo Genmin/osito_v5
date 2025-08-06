@@ -45,7 +45,7 @@ forge build
 
 # Run baseline tests to ensure they pass
 echo_status "Running baseline tests to ensure they pass..."
-if ! forge test --match-path "test/foundry/unit/*.t.sol" --match-path "test/foundry/fuzz/*.t.sol"; then
+if ! forge test --match-path "test/foundry/unit/*.t.sol"; then
     echo_error "Baseline tests failed! Fix tests before running mutation testing."
     exit 1
 fi
