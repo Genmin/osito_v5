@@ -138,9 +138,13 @@ contract OsitoPair is ERC20, ReentrancyGuard {
                     uint256 _totalSupply = totalSupply();
                     
                     if (rootK > rootKLast) {
-                        // 90% of k growth to FeeRouter, 10% stays in pool
-                        // FeeRouter always burns 100% of what it receives
-                        uint256 liquidity = _totalSupply * (rootK - rootKLast) * 90 / (rootKLast * 100);
+                        // CANONICAL V2 FORMULA: yields 1/6 of fee value
+                        uint256 numerator = _totalSupply * (rootK - rootKLast);
+                        uint256 denominator = rootK * 5 + rootKLast;  // Bounded, grows with trade
+                        uint256 oneSixth = numerator / denominator;
+                        
+                        // Scale to 90% (9/10 * 6 = 54/10)
+                        uint256 liquidity = oneSixth * 54 / 10;
                         
                         if (liquidity > 0) {
                             _mint(_feeRouter, liquidity);
