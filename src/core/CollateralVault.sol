@@ -54,6 +54,9 @@ contract CollateralVault is ReentrancyGuard {
         
         collateralToken.safeTransferFrom(msg.sender, address(this), amount);
         collateralBalances[msg.sender] += amount;
+        
+        // Clear OTM flag if position has become healthy after deposit
+        _maybeClearOTM(msg.sender);
     }
     
     /// @notice Withdraw collateral (if no debt)
@@ -131,8 +134,18 @@ contract CollateralVault is ReentrancyGuard {
         emit PositionClosed(msg.sender, repayAmount);
     }
     
+    /// @notice Clear OTM flag if position has become healthy
+    function _maybeClearOTM(address account) internal {
+        if (otmPositions[account].isOTM && isPositionHealthy(account)) {
+            delete otmPositions[account];
+        }
+    }
+    
     /// @notice Mark position as OTM to start grace period
     function markOTM(address account) external {
+        // First check if position was previously marked but is now healthy
+        _maybeClearOTM(account);
+        
         require(!isPositionHealthy(account), "POSITION_HEALTHY");
         require(!otmPositions[account].isOTM, "ALREADY_MARKED");
         
@@ -147,6 +160,9 @@ contract CollateralVault is ReentrancyGuard {
     /// @notice Recover OTM position after grace period
     function recover(address account) external nonReentrant {
         LenderVault(lenderVault).accrueInterest();
+        
+        // Check if position has become healthy since marking
+        _maybeClearOTM(account);
         
         OTMPosition memory otm = otmPositions[account];
         require(otm.isOTM, "NOT_MARKED_OTM");

@@ -158,8 +158,18 @@ contract OsitoPair is ERC20, ReentrancyGuard {
     }
 
     function mint(address to) external nonReentrant returns (uint256 liquidity) {
-        // Allow address(0) for initial burn, or feeRouter for fee collection
-        require(to == address(0) || to == feeRouter, "RESTRICTED");
+        // CRITICAL: Prevent donation attacks on pMin
+        // Only allow initial mint to burn address
+        // FeeRouter gets LP tokens via _mintFee mechanism, not direct minting
+        if (to == address(0)) {
+            // Initial mint only
+            require(totalSupply() == 0, "ALREADY_INITIALIZED");
+        } else if (to == feeRouter) {
+            // Only feeRouter contract can mint to itself
+            require(msg.sender == feeRouter, "ONLY_FEE_ROUTER");
+        } else {
+            revert("RESTRICTED");
+        }
         
         Reserves memory R = reserves;
         uint256 bal0 = ERC20(token0).balanceOf(address(this));
