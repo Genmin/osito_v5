@@ -18,15 +18,13 @@ contract LenderVault is ERC4626, ReentrancyGuard {
     address public immutable treasury;
     mapping(address => bool) public authorized;
     
-    uint256 public totalBorrows;
-    uint256 public totalReserves; // Protocol reserves (Compound pattern)
-    uint256 public borrowIndex = 1e18;
-    uint256 public lastAccrueTime;
+    uint256 public totalBorrows; // Total borrowed principal (NOT including interest)
+    uint256 public borrowIndex = 1e18; // Interest accumulator index  
+    uint256 public lastAccrueTime; // Last interest accrual timestamp
     
     uint256 public constant BASE_RATE = 2e16; // 2% APR
     uint256 public constant RATE_SLOPE = 5e16; // 5% APR slope
     uint256 public constant KINK = 8e17; // 80% utilization kink
-    uint256 public constant RESERVE_FACTOR = 1e17; // 10% reserveFactor (0.1 * 1e18)
     
     modifier onlyAuthorized() {
         require(authorized[msg.sender], "UNAUTHORIZED");
@@ -110,14 +108,8 @@ contract LenderVault is ERC4626, ReentrancyGuard {
         uint256 timeDelta = currentTime - lastAccrueTime;
         uint256 interestFactor = rate.mulDiv(timeDelta, 365 days);
         
-        // Calculate interest accumulated (Compound pattern)
-        uint256 interestAccumulated = totalBorrows.mulDiv(interestFactor, 1e18);
-        
-        // Update state following Compound pattern:
-        // totalBorrowsNew = interestAccumulated + totalBorrows
-        // totalReservesNew = interestAccumulated * reserveFactor + totalReserves
-        totalBorrows += interestAccumulated;
-        totalReserves += interestAccumulated.mulDiv(RESERVE_FACTOR, 1e18);
+        // Only update borrowIndex - interest tracked per-borrower, not in totalBorrows
+        // This keeps totalBorrows = sum of principal only (Osito invariant)
         borrowIndex += borrowIndex.mulDiv(interestFactor, 1e18);
         lastAccrueTime = currentTime;
     }
@@ -142,18 +134,5 @@ contract LenderVault is ERC4626, ReentrancyGuard {
     
     function _tokenSymbol(address assetAddr) private view returns (string memory) {
         return string(abi.encodePacked("o", ERC20(assetAddr).symbol()));
-    }
-    
-    /// @notice Reduces reserves by transferring to treasury
-    /// @dev Simplified Compound pattern - only treasury can withdraw
-    function reduceReserves(uint256 amount) external {
-        require(msg.sender == treasury, "ONLY_TREASURY");
-        _accrue();
-        
-        require(amount <= totalReserves, "INSUFFICIENT_RESERVES");
-        require(amount <= ERC20(asset()).balanceOf(address(this)), "INSUFFICIENT_CASH");
-        
-        totalReserves -= amount;
-        asset().safeTransfer(treasury, amount);
     }
 }

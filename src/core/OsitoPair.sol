@@ -29,7 +29,6 @@ contract OsitoPair is ERC20, ReentrancyGuard {
         address indexed to
     );
     event Sync(uint112 reserve0, uint112 reserve1);
-    event FeeRouterSet(address indexed oldRouter, address indexed newRouter);
     
     function name() public pure override returns (string memory) {
         return "Osito LP";
@@ -50,9 +49,9 @@ contract OsitoPair is ERC20, ReentrancyGuard {
     
     // Immutable pair configuration
     address public immutable factory;
-    address public token0;
+    address public immutable token0;
     address public immutable token1;
-    address public feeRouter;  // Not immutable, set after creation
+    address public feeRouter; // Set once after construction
     bool public immutable tokIsToken0;
     
     // Fee decay parameters
@@ -66,46 +65,32 @@ contract OsitoPair is ERC20, ReentrancyGuard {
     constructor(
         address _token0,
         address _token1,
-        address _feeRouter,
         uint256 _startFeeBps,
         uint256 _endFeeBps,
         uint256 _feeDecayTarget,
         bool _tokIsToken0
     ) {
+        require(_token0 != address(0) && _token1 != address(0), "ZERO_ADDRESS");
+        
         factory = msg.sender;
         token0 = _token0;
         token1 = _token1;
-        feeRouter = _feeRouter;
         startFeeBps = _startFeeBps;
         endFeeBps = _endFeeBps;
         feeDecayTarget = _feeDecayTarget;
         tokIsToken0 = _tokIsToken0;
         
-        // Initialize with 0 if token0 is placeholder
-        if (_token0 != address(0)) {
-            address tokToken = _tokIsToken0 ? _token0 : _token1;
-            initialSupply = ERC20(tokToken).totalSupply();
-        }
-    }
-    
-    /// @notice Initialize token0 after pair creation (for circular dependency)
-    function initialize(address _token0) external {
-        require(msg.sender == factory, "UNAUTHORIZED");
-        require(token0 == address(0), "ALREADY_INITIALIZED");
-        
-        token0 = _token0;
-        // CRITICAL FIX: Always set initialSupply when token0 is set
-        address tokToken = tokIsToken0 ? _token0 : token1;
+        // Set initial supply immediately - no initialization phase
+        address tokToken = _tokIsToken0 ? _token0 : _token1;
         initialSupply = ERC20(tokToken).totalSupply();
     }
     
-    /// @notice Set feeRouter after pair creation (for circular dependency)
+    /// @notice One-time setter for feeRouter (circular dependency resolution)
     function setFeeRouter(address _feeRouter) external {
         require(msg.sender == factory, "UNAUTHORIZED");
         require(feeRouter == address(0), "ALREADY_SET");
-        address oldRouter = feeRouter;
+        require(_feeRouter != address(0), "ZERO_ADDRESS");
         feeRouter = _feeRouter;
-        emit FeeRouterSet(oldRouter, _feeRouter);
     }
 
     // EXACT UniV2 implementation with Solady optimizations

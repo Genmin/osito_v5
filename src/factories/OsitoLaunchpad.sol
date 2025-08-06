@@ -41,33 +41,34 @@ contract OsitoLaunchpad {
     ) external returns (address token, address pair, address feeRouter) {
         require(startFeeBps >= endFeeBps, "INVALID_FEE_RANGE");
         
-        // Create pair first (will receive all tokens)
+        // ATOMIC CONSTRUCTION - eliminates donation attack window
+        
+        // Step 1: Create token with launchpad as temporary holder
+        token = address(new OsitoToken(name, symbol, supply, metadataURI, address(this)));
+        
+        // Step 2: Create pair with real token address (no placeholder)
         pair = address(new OsitoPair(
-            address(0), // token0 placeholder
-            weth,       // token1 is always WETH
-            address(0), // feeRouter placeholder (will be set after)
+            token,      // token0 - real address
+            weth,       // token1 - always WETH  
             startFeeBps,
             endFeeBps,
             feeDecayTarget,
             true        // tokIsToken0 = true
         ));
         
-        // Create FeeRouter with pair address
+        // Step 3: Create FeeRouter with pair address
         feeRouter = address(new FeeRouter(treasury, pair));
         
-        // Set feeRouter in pair (needs separate setter since circular dependency)
+        // Step 4: Set feeRouter in pair (one-time setter)
         OsitoPair(pair).setFeeRouter(feeRouter);
         
-        // Create token and mint entire supply to pair
-        token = address(new OsitoToken(name, symbol, supply, metadataURI, pair));
+        // Step 5: Transfer all tokens to pair
+        OsitoToken(token).transfer(pair, supply);
         
-        // Set token0 in pair and update initialSupply
-        OsitoPair(pair).initialize(token);
-        
-        // Transfer WETH to pair
+        // Step 6: Transfer WETH to pair
         ERC20(weth).transferFrom(msg.sender, pair, wethAmount);
         
-        // CRITICAL: Mint LP tokens to address(0) - ETERNAL LIQUIDITY LOCK
+        // Step 7: Mint LP tokens to address(0) - ETERNAL LIQUIDITY LOCK
         OsitoPair(pair).mint(address(0));
         
         emit TokenLaunched(token, pair, feeRouter, name, symbol, supply, metadataURI);

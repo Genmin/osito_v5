@@ -35,9 +35,7 @@ library PMinLib {
         if (tokReserves != 0 && k / tokReserves != qtReserves) return 0; // Overflow guard
         
         // Quote reserve after dump: yFinal = k / xFinal
-        // Using mulDiv to maintain precision
-        uint256 yFinal = FixedPointMathLib.mulDiv(k, Constants.WAD, xFinal);
-        yFinal = yFinal / Constants.WAD; // Convert back from WAD
+        uint256 yFinal = k / xFinal;
         
         // No output case (should not happen in practice)
         if (qtReserves <= yFinal) return 0;
